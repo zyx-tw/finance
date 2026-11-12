@@ -59,6 +59,7 @@ Every route takes `Authorization: Bearer <FINANCE_TOKEN>` or a signed-in browser
 | Route | Does |
 |-------|------|
 | `POST /api/v1/import` | adds accounts, balances, statements and transactions |
+| `POST /api/v1/statements` | takes a bank's statement PDF as sent (`application/pdf`), opens it with `FINANCE_PDF_PASSWORD`, and imports it only when its rows add up to its own total |
 | `GET /api/v1/summary?month=` | net worth, income, spending, savings rate, runway, categories, every month |
 | `GET /api/v1/transactions?month=&account=&category=&q=&inbox=1` | lists transactions, newest first |
 | `PATCH /api/v1/transactions/<id>` | sets `category`, or `kind` to `transfer` |
@@ -76,6 +77,7 @@ Every route takes `Authorization: Bearer <FINANCE_TOKEN>` or a signed-in browser
 | `FINANCE_ORIGIN` | the app origin, also the sign-in token audience | `http://localhost:8080` |
 | `FINANCE_TOKEN` | the bearer token for importers and MCP, 32 characters or more | off |
 | `FINANCE_ANTHROPIC_KEY` | the Anthropic API key for suggestions | off |
+| `FINANCE_PDF_PASSWORD` | the password of the banks' statement PDFs; the host needs `qpdf` and `pdftotext` (poppler-utils) | none |
 | `FINANCE_AUTH_ORIGIN` | where sign-in happens | `https://auth.zyx.tw` |
 | `FINANCE_DATA` | the folder for the database | `./data` |
 | `FINANCE_DIST` | the built web app | `./dist` |
