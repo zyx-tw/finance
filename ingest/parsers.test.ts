@@ -63,7 +63,7 @@ test("cathay card: the amount sits before the card digits, dates take the statem
   expect(payload.balances[0].amount).toBe(-4575)
 })
 
-test("taishin card: wrapped names, foreign rows and a bill that says 繳款", () => {
+test("taishin card: wrapped names, foreign rows and a bill that carries the payment word", () => {
   const { parser, payload, check } = parse(TAISHIN)!
   expect(parser).toBe("taishin-card")
   expect(check).toEqual({ label: "new charges", expected: 3082, actual: 3082 })

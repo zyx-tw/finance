@@ -87,7 +87,7 @@ function taishinCard(text: string): Parsed | null {
       description = /^[A-Za-z ]{2,12}$/.test(below) ? `${above} ${below}` : above
     }
     const amount = num(row[8])
-    // A phone bill paid by card also says 繳款; only money coming back to the card is a payment.
+    // A phone bill paid by card also carries the payment word; only money coming back to the card is a payment.
     const payment = amount < 0 && /繳款/.test(description)
     if (!payment) purchases += amount
     transactions.push({ account, date: roc(row[1], row[2], row[3]), posted_date: roc(row[4], row[5], row[6]), amount: -amount, description })
