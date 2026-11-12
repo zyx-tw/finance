@@ -4,10 +4,10 @@
 
 export type Payload = {
   source: string
-  accounts: { id: string; name: string; kind: "deposit" | "card"; institution: string }[]
+  accounts: { id: string; name: string; kind: "deposit" | "investment" | "card" | "loan"; institution: string }[]
   balances: { account: string; date: string; amount: number }[]
   statements: { account: string; period: string; closing_date: string; due_date: string | null; amount_due: number }[]
-  transactions: { account: string; date: string; posted_date?: string; amount: number; description: string }[]
+  transactions: { account: string; date: string; posted_date?: string; amount: number; description: string; kind?: "transfer" }[]
 }
 
 export type Parsed = { parser: string; payload: Payload; check: { label: string; expected: number; actual: number } | null }
@@ -111,7 +111,7 @@ function taishinCard(text: string): Parsed | null {
  * Rows of a savings account. The layout prints one amount and the balance
  * after it, so the balance tells whether the amount came in or went out.
  */
-function byBalance(rows: { date: string; description: string; amount: number; balance: number }[], opening: number | null, account: string) {
+function byBalance(rows: { date: string; description: string; amount: number; balance: number }[], opening: number | null, account: string): Payload["transactions"] {
   const transactions: Payload["transactions"] = []
   let before = opening
   for (const row of rows) {
@@ -160,8 +160,173 @@ function guessOpening(text: string, first: { amount: number; balance: number }) 
   const line = lines(text).find(l => /^\s*\d{3}\/\d\d\/\d\d\s/.test(l))
   if (!header || !line) return first.balance - first.amount
   const amountEnd = line.search(/[\d,]+\.\d\d/) + (/[\d,]+\.\d\d/.exec(line)?.[0].length ?? 0)
-  const withdrawal = Math.abs(amountEnd - (header.indexOf("提款") + 2)) < Math.abs(amountEnd - (header.indexOf("存款") + 2))
+  return openingByColumn(header, "提款", "存款", amountEnd, first)
+}
+
+/** The balance before a first row: the end of its amount sits under the withdrawal or the deposit heading. */
+function openingByColumn(header: string, out: string, into: string, amountEnd: number, first: { amount: number; balance: number }) {
+  const withdrawal = Math.abs(amountEnd - (header.indexOf(out) + out.length)) < Math.abs(amountEnd - (header.indexOf(into) + into.length))
   return withdrawal ? first.balance + first.amount : first.balance - first.amount
+}
+
+type Row = { date: string; description: string; amount: number; balance: number; amountEnd: number }
+
+/** Rows of one savings account to transactions, checked against the balance the statement prints for it. */
+function savings(account: string, rows: Row[], header: string | undefined, out: string, into: string, closing: number) {
+  const first = rows[0]
+  if (!first) return { transactions: [], actual: closing }
+  const opening = header ? openingByColumn(header, out, into, first.amountEnd, first) : first.balance - first.amount
+  const transactions = byBalance(rows, opening, account)
+  return { transactions, actual: Math.round((opening + transactions.reduce((sum, t) => sum + t.amount, 0)) * 100) / 100 }
+}
+
+/** Taishin and Richart: several savings accounts in one statement, each with its own rows. */
+function taishinBank(text: string): Parsed | null {
+  const period = /資料期間[:：](\d{4})\/(\d\d)\/(\d\d)~(\d{4})\/(\d\d)\/(\d\d)/.exec(text)
+  if (!period || !text.includes("新臺幣帳戶概要區")) return null
+  const closing = `${period[4]}-${period[5]}-${period[6]}`
+  const all = lines(text)
+  const header = all.find(line => line.includes("支出金額") && line.includes("存入金額"))
+  const accounts: Payload["accounts"] = []
+  const balances: Payload["balances"] = []
+  const transactions: Payload["transactions"] = []
+  let expected = 0
+  let actual = 0
+  for (const line of all) {
+    const summary = /^\s*新臺幣活存\s+\d+\*+(\d{4})\s+\$([\d,]+)/.exec(line)
+    if (!summary) continue
+    const last4 = summary[1]
+    const id = `taishin-${last4}`
+    const rows: Row[] = []
+    for (const row of all) {
+      const match = new RegExp(`^\\s*\\d+\\*+${last4}\\s+(\\d{4})/(\\d\\d)/(\\d\\d)\\s+(\\S+)\\s+\\$([\\d,]+)\\s+\\$([\\d,]+)\\s*(.*)$`).exec(row)
+      if (!match) continue
+      const amountEnd = row.indexOf(`$${match[5]}`) + match[5].length + 1
+      rows.push({ date: `${match[1]}-${match[2]}-${match[3]}`, description: `${match[4]} ${match[7].trim()}`.trim(), amount: num(match[5]), balance: num(match[6]), amountEnd })
+    }
+    const result = savings(id, rows, header, "支出金額", "存入金額", num(summary[2]))
+    accounts.push({ id, name: `Taishin Richart ${last4}`, kind: "deposit", institution: "Taishin Bank" })
+    balances.push({ account: id, date: closing, amount: num(summary[2]) })
+    transactions.push(...result.transactions)
+    expected += num(summary[2])
+    actual += result.actual
+  }
+  if (!accounts.length) return null
+  return {
+    parser: "taishin-bank",
+    payload: { source: `taishin-bank-${closing.slice(0, 7)}`, accounts, balances, statements: [], transactions },
+    check: { label: "closing balances", expected, actual },
+  }
+}
+
+function sinopacBank(text: string): Parsed | null {
+  const period = /對帳單期間[:：](\d{4})\/(\d\d)\/(\d\d)~(\d{4})\/(\d\d)\/(\d\d)/.exec(text)
+  if (!period || !text.includes("永豐")) return null
+  const balance = /新臺幣\s+活期儲蓄存款\s+\S+\s+([\d,]+)/.exec(text)
+  if (!balance) return null
+  const account = "sinopac"
+  const closing = `${period[4]}-${period[5]}-${period[6]}`
+  const all = lines(text)
+  const header = all.find(line => /交易日\s+摘要\s+支出\s+存入\s+餘額/.test(line))
+  const rows: Row[] = []
+  for (const line of all) {
+    const match = /^\s*(\d{4})\/(\d\d)\/(\d\d)\s+(\S+)\s+([\d,]+)\s+([\d,]+)(?:\s+(.*))?$/.exec(line)
+    if (!match) continue
+    const amountEnd = line.indexOf(match[5], line.indexOf(match[4]) + match[4].length) + match[5].length
+    rows.push({ date: `${match[1]}-${match[2]}-${match[3]}`, description: `${match[4]} ${match[7]?.trim() ?? ""}`.trim(), amount: num(match[5]), balance: num(match[6]), amountEnd })
+  }
+  const result = savings(account, rows, header, "支出", "存入", num(balance[1]))
+  return {
+    parser: "sinopac-bank",
+    payload: {
+      source: `sinopac-${closing.slice(0, 7)}`,
+      accounts: [{ id: account, name: "SinoPac savings", kind: "deposit", institution: "Bank SinoPac" }],
+      balances: [{ account, date: closing, amount: num(balance[1]) }],
+      statements: [],
+      transactions: result.transactions,
+    },
+    check: { label: "closing balance", expected: num(balance[1]), actual: result.actual },
+  }
+}
+
+/** Fubon: a savings account and the loans the bank holds, such as a student loan. */
+function fubonBank(text: string): Parsed | null {
+  const period = /對帳單期間[:：](\d{4})\/(\d\d)\/(\d\d)~(\d{4})\/(\d\d)\/(\d\d)/.exec(text)
+  if (!period || !/台幣活存/.test(text) || !/活期存款\s+\S+\s+\d+\*+\d+\s+TWD/.test(text)) return null
+  const closing = `${period[4]}-${period[5]}-${period[6]}`
+  const all = lines(text)
+  const balance = /活期存款\s+\S+\s+\d+\*+\d+\s+TWD\s+([\d,.]+)/.exec(text)!
+  const header = all.find(line => /日期\s+摘要\s+支出\s+收入\s+餘額/.test(line))
+  const rows: Row[] = []
+  for (const line of all) {
+    const match = /^\s*\d+\*+\d+\s+(\d{4})\/(\d\d)\/(\d\d)\s+(\S+)\s+([\d,]+\.\d\d)\s+([\d,]+\.\d\d)\s*(.*)$/.exec(line)
+    if (!match) continue
+    const amountEnd = line.indexOf(match[5]) + match[5].length
+    rows.push({ date: `${match[1]}-${match[2]}-${match[3]}`, description: `${match[4]} ${match[7].trim()}`.trim(), amount: num(match[5]), balance: num(match[6]), amountEnd })
+  }
+  const result = savings("fubon", rows, header, "支出", "收入", num(balance[1]))
+  const accounts: Payload["accounts"] = [{ id: "fubon", name: "Fubon savings", kind: "deposit", institution: "Taipei Fubon Bank" }]
+  const balances: Payload["balances"] = [{ account: "fubon", date: closing, amount: num(balance[1]) }]
+  // The loan total is the debt; each loan prints its own balance on a second line.
+  const loans = /貸款餘額總計\s+([\d,.]+)/.exec(text)
+  let loanCheck = 0
+  if (loans) {
+    accounts.push({ id: "fubon-loan", name: "Fubon student loan", kind: "loan", institution: "Taipei Fubon Bank" })
+    balances.push({ account: "fubon-loan", date: closing, amount: -num(loans[1]) })
+    for (const [i, line] of all.entries()) {
+      if (!/^\s*就學貸款|^\s*\S*貸款\s+\d+\*+\d+\s+[\d,]+\.\d\d/.test(line)) continue
+      const next = /^\s*\S+\s+([\d,]+\.\d\d)\s+[\d.]+%/.exec(all[i + 1] ?? "")
+      if (next) loanCheck += num(next[1])
+    }
+  }
+  return {
+    parser: "fubon-bank",
+    payload: { source: `fubon-${closing.slice(0, 7)}`, accounts, balances, statements: [], transactions: result.transactions },
+    check: { label: "savings and loan balances", expected: num(balance[1]) + (loans ? num(loans[1]) : 0), actual: result.actual + loanCheck },
+  }
+}
+
+/**
+ * SinoPac Securities: the market value of the holdings is the balance, and each
+ * buy is money arriving from the bank, which pairs with the bank's 股票款 row.
+ */
+function sinopacSecurities(text: string): Parsed | null {
+  const month = /成交年月[:：]\s*(\d{4})(\d\d)/.exec(text)
+  if (!month || !text.includes("證券電子對帳單")) return null
+  const account = "sinopac-securities"
+  const year = Number(month[1])
+  const end = new Date(Date.UTC(year, Number(month[2]), 0)).toISOString().slice(0, 10)
+  const all = lines(text)
+  const total = all.map(line => /^\s*小計\s+[\d,]+\s+[\d,]+\s+([\d,]+)\s+-?[\d,]+/.exec(line)).find(Boolean)
+  let held = 0
+  for (const line of all) {
+    const row = /^\s*(現股|融資|融券)\s+\S+\s+\S+\s+[\d,]+\s+[\d,.]+\s+[\d,]+\s+[\d,.]+\s+([\d,]+)\s/.exec(line)
+    if (row) held += num(row[2])
+  }
+  const transactions: Payload["transactions"] = []
+  let sells = 0
+  for (const line of all) {
+    const trade = /^\s*(\d{4})\/(\d\d)\/(\d\d)\s+(\S+)\s+(\S+)\s+([\d,]+)\s+[\d,.]+\s+([\d,]+)\s+([\d,]+)/.exec(line)
+    if (!trade) continue
+    if (!/買$/.test(trade[4])) {
+      sells++
+      continue
+    }
+    transactions.push({ account, date: `${trade[1]}-${trade[2]}-${trade[3]}`, amount: num(trade[7]) + num(trade[8]), description: `股票款 ${trade[5]}`, kind: "transfer" })
+  }
+  const value = total ? num(total[1]) : held
+  return {
+    parser: "sinopac-securities",
+    payload: {
+      source: `sinopac-securities-${month[1]}-${month[2]}`,
+      accounts: [{ id: account, name: "SinoPac Securities", kind: "investment", institution: "SinoPac Securities" }],
+      balances: [{ account, date: end, amount: value }],
+      statements: [],
+      transactions,
+    },
+    // A sell also pays a tax this parser does not read yet, so a statement with a sell does not pass.
+    check: sells ? { label: "sells not read yet", expected: 0, actual: sells } : { label: "holdings value", expected: value, actual: held },
+  }
 }
 
 function nextBank(text: string): Parsed | null {
@@ -192,7 +357,7 @@ function nextBank(text: string): Parsed | null {
   }
 }
 
-const PARSERS = [cathayCard, taishinCard, esunBank, nextBank]
+const PARSERS = [cathayCard, taishinCard, esunBank, nextBank, taishinBank, sinopacBank, fubonBank, sinopacSecurities]
 
 /** The first parser that knows the layout, or null when none does. */
 export function parse(text: string): Parsed | null {
