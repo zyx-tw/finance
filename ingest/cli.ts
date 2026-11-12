@@ -3,7 +3,7 @@
 // each payload to <origin>/api/v1/import with FINANCE_TOKEN. Amounts and
 // merchant names never reach the output, only counts and the total check.
 import { readFileSync } from "node:fs"
-import { parse } from "./parsers"
+import { checked, parse } from "./parsers"
 
 const args = process.argv.slice(2)
 const at = args.indexOf("--post")
@@ -21,7 +21,8 @@ for (const file of args) {
     continue
   }
   const { payload, check } = parsed
-  const ok = !check || Math.abs(check.expected - check.actual) < 0.005
+  // A statement whose own total was not found is not checked, so it is not sent.
+  const ok = checked(check)
   if (!ok) failed++
   let sent = ""
   if (origin && ok) {
@@ -30,6 +31,6 @@ for (const file of args) {
     sent = res.ok ? ` | inserted ${body.inserted}, duplicates ${body.duplicates}, transfers ${body.transfers}` : ` | import failed ${res.status} ${JSON.stringify(body)}`
     if (!res.ok) failed++
   }
-  console.log(`${name}: ${parsed.parser}, ${payload.transactions.length} rows, ${check ? `${check.label} ${ok ? "match" : "DO NOT MATCH"}` : "no total to check"}${sent}`)
+  console.log(`${name}: ${parsed.parser}, ${payload.transactions.length} rows, ${check ? `${check.label} ${ok ? "match" : "DO NOT MATCH"}` : "no total to check, not sent"}${sent}`)
 }
 process.exit(failed ? 1 : 0)

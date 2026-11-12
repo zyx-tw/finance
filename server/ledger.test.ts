@@ -52,6 +52,9 @@ const PAYLOAD = {
     { account: "bank", date: "2026-07-04", amount: -4000, description: "行銀跨轉" },
     { account: "bank", date: "2026-07-10", amount: -9000, description: "行銀跨轉" },
     { account: "bank", date: "2026-07-21", amount: 2, description: "利息存入" },
+    // Equal sums with no transfer word: a purchase and a bonus, not a transfer.
+    { account: "card", date: "2026-07-12", amount: -1500, description: "家具店" },
+    { account: "bank", date: "2026-07-13", amount: 1500, description: "獎金" },
   ],
 }
 
@@ -98,13 +101,15 @@ test("a card payment and the bank row behind it are one transfer", async () => {
   expect(kind("ＣＵＢＥＡｐｐ轉帳繳款")).toBe("transfer")
   expect(july.filter((t: { amount: number }) => t.amount === -4000)[0].kind).toBe("transfer")
   expect(kind("台哥大帳單－網路／語音繳款")).toBe("expense")
+  expect(kind("家具店")).toBe("expense")
+  expect(kind("獎金")).toBe("income")
 })
 
 test("the summary leaves out transfers and bank rows nobody reviewed", async () => {
   const s = await body(req("/api/v1/summary?month=2026-07"))
-  // 664+12 and 690 for the plans, 4 deliveries, 2 coffees, the phone bill.
-  expect(s.spending).toBe(676 + 690 + 800 + 250 + 1206)
-  expect(s.income).toBe(2)
+  // 664+12 and 690 for the plans, 4 deliveries, 2 coffees, the phone bill, the furniture.
+  expect(s.spending).toBe(676 + 690 + 800 + 250 + 1206 + 1500)
+  expect(s.income).toBe(2 + 1500)
   expect(s.unreviewed).toEqual({ count: 1, inflow: 0, outflow: 9000 })
   expect(s.net_worth).toBe(47000)
   expect(s.liabilities).toBe(3000)
@@ -158,5 +163,5 @@ test("a model's guess waits in the inbox until a person accepts it", async () =>
   expect(await body(req("/api/v1/suggestions/accept", { method: "POST", body: "{}" }))).toEqual({ accepted: 1 })
   const s = await body(req("/api/v1/summary?month=2026-07"))
   expect(s.unreviewed.count).toBe(0)
-  expect(s.spending).toBe(676 + 690 + 800 + 250 + 1206)
+  expect(s.spending).toBe(676 + 690 + 800 + 250 + 1206 + 1500)
 })
