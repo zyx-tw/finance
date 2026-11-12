@@ -1,9 +1,8 @@
 import { useCallback, useEffect, useState, type ReactNode } from "react"
-import { LogOut } from "lucide-react"
 import { toast } from "sonner"
+import { cornerLink } from "@/components/corners"
 import { SectionTitle } from "@/components/section-title"
 import { TaskShell } from "@/components/task-shell"
-import { TaskThemeToggle } from "@/components/task-theme"
 import { Button } from "@/components/ui/button"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
@@ -32,15 +31,11 @@ export function FinanceApp() {
     window.location.assign("https://auth.zyx.tw/")
   }
 
-  const actions = (
-    <>
-      <TaskThemeToggle />
-      {me?.authenticated && (
-        <Button type="button" variant="ghost" size="icon" className="-m-3" onClick={logout} aria-label="Sign out" title="Sign out">
-          <LogOut aria-hidden />
-        </Button>
-      )}
-    </>
+  // The top right corner is text, as every corner is. The d key switches light and dark.
+  const actions = me?.authenticated && (
+    <button type="button" onClick={logout} className={cornerLink}>
+      Sign out
+    </button>
   )
 
   return (
