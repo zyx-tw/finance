@@ -39,9 +39,9 @@ export function FinanceApp() {
   )
 
   return (
-    <TaskShell title="Finance" actions={actions} wide>
+    <TaskShell title="Finance" actions={actions} wide center={!me?.authenticated}>
       {me && !me.authenticated && (
-        <section aria-label="Sign in" className="flex gap-3">
+        <section aria-label="Sign in" className="flex justify-center gap-3">
           <Button onClick={() => window.location.assign("/auth/start")}>Sign in</Button>
         </section>
       )}
