@@ -16,7 +16,7 @@ You send it your statements. It shows your net worth, where each month's money w
 - **Card cycles**: closing day, due day, the day you usually pay, and the next due date.
 - **Transfers**: money that leaves one account and reaches another counts once, not as a cost.
 - **Inbox**: rows with no category wait for one click. The merchant's other rows follow.
-- **Suggestions**: Claude guesses a category or a transfer for each new inbox merchant. A guess changes no number until you accept it. Claude sees the merchant name, one description and whether money came in or went out, never an amount or an account.
+- **Suggestions**: Claude guesses a category or a transfer for each new inbox merchant. A guess changes no number until you accept it. Claude sees the merchant name, one description, whether money came in or went out and the kind of account, with account numbers, dates and amounts scrubbed out.
 - **MCP**: 7 tools at `/mcp` for an agent to read the ledger and import into it.
 
 ## Quick start

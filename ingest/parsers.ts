@@ -10,6 +10,9 @@ export type Payload = {
   transactions: { account: string; date: string; posted_date?: string; amount: number; description: string; kind?: "transfer" }[]
 }
 
+/** True when the statement's own total was found and the rows add up to it. */
+export const checked = (check: Parsed["check"]) => check !== null && Math.abs(check.expected - check.actual) < 0.005
+
 export type Parsed = { parser: string; payload: Payload; check: { label: string; expected: number; actual: number } | null }
 
 const num = (text: string) => Number(text.replace(/,/g, ""))
@@ -57,7 +60,8 @@ function cathayCard(text: string): Parsed | null {
       statements: [{ account, period: `${year}-${pad(month)}`, closing_date: closing, due_date: due, amount_due: amountDue }],
       transactions,
     },
-    check: spent ? { label: "purchases", expected: num(spent[1]), actual: purchases } : null,
+    // Without the amount due the balance would read 0: leave it unchecked so it is not sent.
+    check: spent && total ? { label: "purchases", expected: num(spent[1]), actual: purchases } : null,
   }
 }
 
@@ -103,7 +107,8 @@ function taishinCard(text: string): Parsed | null {
       statements: [{ account, period: `${year}-${pad(month)}`, closing_date: closingDate, due_date: due ? roc(due[1], due[2], due[3]) : null, amount_due: amountDue }],
       transactions,
     },
-    check: added ? { label: "new charges", expected: num(added[1]), actual: purchases } : null,
+    // Without the amount due the balance would read 0: leave it unchecked so it is not sent.
+    check: added && total ? { label: "new charges", expected: num(added[1]), actual: purchases } : null,
   }
 }
 
@@ -150,7 +155,7 @@ function esunBank(text: string): Parsed | null {
       statements: [],
       transactions,
     },
-    check: opening === null ? null : { label: "closing balance", expected: num(balance[1]), actual: Math.round((opening + net) * 100) / 100 },
+    check: opening === null ? (rows.length ? null : { label: "closing balance, no rows", expected: 0, actual: 0 }) : { label: "closing balance", expected: num(balance[1]), actual: Math.round((opening + net) * 100) / 100 },
   }
 }
 

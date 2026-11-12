@@ -4,6 +4,9 @@ import type { Suggestion, Unsorted } from "./ai"
 import type { Db } from "./db"
 import { HttpError } from "./http"
 
+/** Words a bank or card prints on a row that moves money between accounts. */
+const TRANSFER_WORDS = /轉帳|轉入|轉出|跨行|匯款|繳款|扣繳|卡費|信用卡|提款|存入|儲值|加值|交割|證券|自動扣款|自扣|TRANSFER|PAYMENT/i
+
 const KINDS = ["deposit", "investment", "card", "loan"] as const
 const TX_KINDS = ["expense", "income", "transfer", "fee"] as const
 type TxKind = (typeof TX_KINDS)[number]
@@ -155,18 +158,20 @@ export function createLedger(db: Db) {
 
   /**
    * Money that leaves one account and reaches another within 3 days, same
-   * amount, is one transfer, not a cost and an income. Each row pairs once.
+   * amount, is one transfer, not a cost and an income, when one side says it
+   * moves money (TRANSFER_WORDS). Equal sums alone are not enough: a 1,000
+   * purchase and a 1,000 refund or bonus must stay what they are. Each row pairs once.
    */
   function pairTransfers() {
     const rows = db
-      .query("select id, account_id, date, amount, kind from transactions where category_source is not 'user' and kind in ('expense', 'income', 'transfer') order by date, id")
-      .all() as Pick<Tx, "id" | "account_id" | "date" | "amount" | "kind">[]
+      .query("select id, account_id, date, amount, kind, description from transactions where category_source is not 'user' and kind in ('expense', 'income', 'transfer') order by date, id")
+      .all() as Pick<Tx, "id" | "account_id" | "date" | "amount" | "kind" | "description">[]
     const ins = rows.filter(r => r.amount > 0)
     const used = new Set<number>()
     let paired = 0
     for (const out of rows) {
       if (out.amount >= 0) continue
-      const match = ins.find(r => !used.has(r.id) && r.account_id !== out.account_id && r.amount === -out.amount && Math.abs(day(r.date) - day(out.date)) <= 3)
+      const match = ins.find(r => !used.has(r.id) && r.account_id !== out.account_id && r.amount === -out.amount && Math.abs(day(r.date) - day(out.date)) <= 3 && (TRANSFER_WORDS.test(normalize(out.description)) || TRANSFER_WORDS.test(normalize(r.description))))
       if (!match) continue
       used.add(match.id)
       for (const row of [out, match]) {

@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test"
-import { parse } from "./parsers"
+import { checked, parse } from "./parsers"
 
 // Made-up statements in each bank's layout. Real statements never go in git.
 
@@ -117,18 +117,18 @@ const SINOPAC_BANK = `
 const FUBON_BANK = `
                                               對帳單期間：2026/09/01~2026/09/30
      帳戶種類       分行          帳號           幣別    存單號碼            餘額              起存日
-     活期存款      營業部     81680010****00    TWD                          301.00
+     活期存款      營業部     12345678****00    TWD                          301.00
         貸款類型                  貸款帳號                    原貸金額                每月應繳月付金
                                                       貸款餘額                  適用利率             已繳期數
-        就學貸款               85039000****00                 10,000.00           次月不須繳款          1日
+        就學貸款               87654321****00                 10,000.00           次月不須繳款          1日
                                112下學期                     10,000.00            0.000000%
-        就學貸款               85039000****00                 20,000.00           次月不須繳款          1日
+        就學貸款               87654321****00                 20,000.00           次月不須繳款          1日
                                113上學期                     20,000.00            0.000000%
 貸款餘額總計                              30,000.00
 台幣活存
           帳號             日期              摘要               支出                         收入                         餘額
-     81680010****00   2026/09/01        承轉結餘                                                                                 1.00
-     81680010****00   2026/09/20        利息存入                                                    300.00                    301.00
+     12345678****00   2026/09/01        承轉結餘                                                                                 1.00
+     12345678****00   2026/09/20        利息存入                                                    300.00                    301.00
 `
 
 const SECURITIES = `
@@ -179,4 +179,11 @@ test("securities: the holdings' value is the balance, and a buy arrives as a tra
   expect(payload.transactions).toEqual([{ account: "sinopac-securities", date: "2026-09-08", amount: 1001, description: "股票款 元大台灣50", kind: "transfer" }])
   expect(check).toEqual({ label: "holdings value", expected: 11000, actual: 11000 })
   expect(parse(SECURITIES.replace("櫃買", "櫃賣"))!.check!.label).toBe("sells not read yet")
+})
+
+test("a statement whose own total is missing is not checked, so the cli does not send it", () => {
+  expect(checked(parse(CATHAY)!.check)).toBe(true)
+  const cut = parse(CATHAY.replace(/本期應繳總額.*\n/, "\n"))!
+  expect(cut.check).toBeNull()
+  expect(checked(cut.check)).toBe(false)
 })

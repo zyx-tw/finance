@@ -7,7 +7,8 @@ import { log } from "./otel"
 
 
 const SESSION_COOKIE = "finance_session"
-const SESSION_DAYS = 30
+// auth.zyx.tw asks for the passkey again after 7 days for finance (auth/server/apps.ts).
+const SESSION_MS = 7 * 86_400_000
 
 const sha256 = (value: string) => createHash("sha256").update(value).digest("hex")
 
@@ -59,7 +60,9 @@ export function createAuth(config: Config, db: Db, gate: Gate) {
       throw error
     }
     const now = Date.now()
-    const expires = Math.min(now + SESSION_DAYS * 86_400_000, grant.expiresAt)
+    if (grant.authTime < now - SESSION_MS) throw new HttpError(403, "stale")
+    // 7 days from the passkey, not from this callback.
+    const expires = Math.min(now + SESSION_MS, grant.authTime + SESSION_MS, grant.expiresAt)
     const token = randomBytes(32).toString("base64url")
     db.query("delete from sessions where expires_at < ?").run(now)
     db.query("insert into sessions (token_hash, sid, created_at, expires_at) values (?, ?, ?, ?)").run(sha256(token), grant.sid, now, expires)
