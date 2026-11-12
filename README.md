@@ -11,7 +11,7 @@ You send it your statements. It shows your net worth, where each month's money w
 ## Features
 
 - **Import by API**: one call takes accounts, balances, card statements and transactions. Sending it twice changes nothing.
-- **Statement parsers**: Cathay and Taishin credit cards, E.SUN and Next Bank savings. Each parser checks its rows against the statement's own total.
+- **Statement parsers**: Cathay and Taishin credit cards; Taishin, E.SUN, SinoPac, Fubon and Next Bank savings; the Fubon student loan; SinoPac Securities holdings. Each parser checks its rows against the statement's own total.
 - **Recurring charges**: finds subscriptions by merchant, day of month and amount, and gives the next date.
 - **Card cycles**: closing day, due day, the day you usually pay, and the next due date.
 - **Transfers**: money that leaves one account and reaches another counts once, not as a cost.

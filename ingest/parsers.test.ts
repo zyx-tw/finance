@@ -89,3 +89,94 @@ test("next bank", () => {
 test("an unknown layout has no parser", () => {
   expect(parse("hello")).toBeNull()
 })
+
+const TAISHIN_BANK = `
+                                                資料期間：2026/09/01~2026/09/30
+新臺幣帳戶概要區                                                                  現值參考日:2026/09/30
+   帳號類別             帳戶號碼             定存/專案起迄日         定存/專案利率%        帳戶餘額           備註
+新臺幣活存            288810****1111                                            $1,500        Richart
+新臺幣活存            288817****2222                                            $8,000        Richart
+合計                                                                                  $9,500
+     帳號            日期          摘要       支票號碼   支出金額        存入金額        帳戶餘額                   備註
+288810****1111   2026/09/01   刷卡消費                 $200                  $500 連支＊某超市
+288810****1111   2026/09/07   轉帳存入                           $1,000      $1,500 轉出288817****2222
+288817****2222   2026/09/02   轉帳支取                 $100                  $9,000 街口支付扣款
+288817****2222   2026/09/07   轉帳支取               $1,000                  $8,000 轉入288810****1111
+`
+
+const SINOPAC_BANK = `
+                                                對帳單期間：2026/09/01~2026/09/30
+  永豐銀行
+  幣別              存款種類              帳號                   外幣餘額                臺幣餘額             透支/質借額度
+新臺幣          活期儲蓄存款          123-01*-**00000-*                                     5,065                   0
+  交易日              摘要         支出                 存入                 餘額                      備註/資金用途
+2026/09/10   股票款                   1,000                                 5,000
+2026/09/19   利息存入                                        65               5,065
+`
+
+const FUBON_BANK = `
+                                              對帳單期間：2026/09/01~2026/09/30
+     帳戶種類       分行          帳號           幣別    存單號碼            餘額              起存日
+     活期存款      營業部     81680010****00    TWD                          301.00
+        貸款類型                  貸款帳號                    原貸金額                每月應繳月付金
+                                                      貸款餘額                  適用利率             已繳期數
+        就學貸款               85039000****00                 10,000.00           次月不須繳款          1日
+                               112下學期                     10,000.00            0.000000%
+        就學貸款               85039000****00                 20,000.00           次月不須繳款          1日
+                               113上學期                     20,000.00            0.000000%
+貸款餘額總計                              30,000.00
+台幣活存
+          帳號             日期              摘要               支出                         收入                         餘額
+     81680010****00   2026/09/01        承轉結餘                                                                                 1.00
+     81680010****00   2026/09/20        利息存入                                                    300.00                    301.00
+`
+
+const SECURITIES = `
+                                                                                                                                  成交年月： 202609
+                                                                                                     證券電子對帳單
+    現股           0050         元大台灣50                 100                 100.00            10,000           110.00       11,000         1,000       10.00%
+                               小計                    100                                   10,000                        11,000         1,000       10.00%
+幣別：臺幣
+2026/09/08 櫃買        元大台灣50                10   100.0000         1,000              1
+`
+
+test("taishin bank: one statement, several accounts, each checked against its own balance", () => {
+  const { parser, payload, check } = parse(TAISHIN_BANK)!
+  expect(parser).toBe("taishin-bank")
+  expect(check).toEqual({ label: "closing balances", expected: 9500, actual: 9500 })
+  expect(payload.accounts.map(a => a.id)).toEqual(["taishin-1111", "taishin-2222"])
+  expect(payload.transactions.map(t => [t.account, t.amount])).toEqual([
+    ["taishin-1111", -200],
+    ["taishin-1111", 1000],
+    ["taishin-2222", -100],
+    ["taishin-2222", -1000],
+  ])
+  expect(payload.transactions[0].description).toBe("刷卡消費 連支＊某超市")
+})
+
+test("sinopac bank", () => {
+  const { parser, payload, check } = parse(SINOPAC_BANK)!
+  expect(parser).toBe("sinopac-bank")
+  expect(payload.transactions.map(t => t.amount)).toEqual([-1000, 65])
+  expect(check).toEqual({ label: "closing balance", expected: 5065, actual: 5065 })
+})
+
+test("fubon bank: the student loan is a debt", () => {
+  const { parser, payload, check } = parse(FUBON_BANK)!
+  expect(parser).toBe("fubon-bank")
+  expect(payload.balances).toEqual([
+    { account: "fubon", date: "2026-09-30", amount: 301 },
+    { account: "fubon-loan", date: "2026-09-30", amount: -30000 },
+  ])
+  expect(payload.transactions.map(t => t.amount)).toEqual([300])
+  expect(check).toEqual({ label: "savings and loan balances", expected: 30301, actual: 30301 })
+})
+
+test("securities: the holdings' value is the balance, and a buy arrives as a transfer", () => {
+  const { parser, payload, check } = parse(SECURITIES)!
+  expect(parser).toBe("sinopac-securities")
+  expect(payload.balances).toEqual([{ account: "sinopac-securities", date: "2026-09-30", amount: 11000 }])
+  expect(payload.transactions).toEqual([{ account: "sinopac-securities", date: "2026-09-08", amount: 1001, description: "股票款 元大台灣50", kind: "transfer" }])
+  expect(check).toEqual({ label: "holdings value", expected: 11000, actual: 11000 })
+  expect(parse(SECURITIES.replace("櫃買", "櫃賣"))!.check!.label).toBe("sells not read yet")
+})
