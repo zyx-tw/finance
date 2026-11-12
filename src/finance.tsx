@@ -372,7 +372,8 @@ function Transactions({ query, inbox, summary, onMonth, onChange }: { query: str
                 ) : (
                   <div className="flex items-center gap-3">
                     <Select items={CATEGORY_ITEMS} value={row.category} onValueChange={value => value && change(row.id, { category: value })}>
-                      <SelectTrigger aria-label={`Category for ${row.merchant}`} className="w-28 sm:w-40">
+                      {/* On a phone a row with a guess shows only the guess, so the name keeps its room. */}
+                      <SelectTrigger aria-label={`Category for ${row.merchant}`} className={cn("w-28 sm:w-40", !row.category && row.suggestion && "hidden sm:flex")}>
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>

@@ -15,7 +15,7 @@ const BATCH = 80
 
 const SYSTEM = `You sort rows from a Taiwanese person's bank and credit card statements into spending categories.
 Each row has the merchant name as printed, one raw statement description, whether money came in or went out, and the kind of account.
-Pick one category per merchant from the list. Pick "Transfer" when the row most likely moves the person's own money: between their own accounts, to a broker, to an e-wallet top-up (街口, LINE Pay, 全支付 top-ups), a card bill payment, or a cash withdrawal. Pick "Other" when the row is a real expense or income you cannot place.
+Pick one category per merchant from the list. Pick "Transfer" only when the row moves the person's own money and buys nothing: between their own accounts, to a broker, a card bill payment, a cash withdrawal, or an e-wallet top-up that says so (儲值, 加值). A wallet debit such as 街口支付扣款 or LINE Pay 扣款 pays a shop through the wallet: it is spending, so pick "Other" unless the description names the shop. Pick "Other" when the row is a real expense or income you cannot place.
 Use null when the description gives too little to decide, for example a bare person's name or an account number. A wrong category is worse than null.
 Common bank words: 轉出 / 轉帳支出 = money sent, 轉入 = money received, 跨行 = between banks, ATM 提款 = cash withdrawal, 扣款 = automatic debit, 薪資 = salary, 利息 = interest.`
 
