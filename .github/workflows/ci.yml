@@ -1,0 +1,38 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.2
+      - run: bun install --frozen-lockfile
+      - run: bun test server ingest
+      - run: bun run typecheck
+      - run: bun run lint
+      - run: bun run build
+
+  image:
+    uses: zyx1121/.github/.github/workflows/image.yml@main
+    permissions:
+      contents: read
+      packages: write
+    with:
+      images: '[{"name": "ghcr.io/zyx1121/finance", "file": "deploy/release.Dockerfile"}]'
+      smoke: bash deploy/smoke.sh
+
+  promote:
+    needs: [check, image]
+    uses: zyx1121/.github/.github/workflows/promote.yml@main
+    permissions:
+      contents: read
+      packages: write
+    with:
+      images: '["ghcr.io/zyx1121/finance"]'
