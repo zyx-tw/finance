@@ -15,6 +15,8 @@ export type Config = {
   token: string | null
   /** Anthropic API key for category suggestions. Off when unset. */
   anthropicKey: string | null
+  /** The password of the banks' statement PDFs (POST /api/v1/statements). */
+  pdfPassword: string | null
 }
 
 export function loadConfig(env: Record<string, string | undefined> = process.env): Config {
@@ -29,5 +31,6 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
     authKey: authKey as JWK,
     token,
     anthropicKey: env.FINANCE_ANTHROPIC_KEY?.trim() || null,
+    pdfPassword: env.FINANCE_PDF_PASSWORD?.trim() || null,
   }
 }

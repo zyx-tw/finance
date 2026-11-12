@@ -16,6 +16,21 @@ export function json(body: unknown, init: { status?: number; headers?: Record<st
 // A year of statements from every account fits well inside 4 MB.
 const MAX_JSON = 4 * 1024 * 1024
 
+/** The raw body, refused past max bytes. */
+export async function readBytes(req: Request, max: number): Promise<Uint8Array> {
+  if (Number(req.headers.get("content-length") ?? 0) > max) throw new HttpError(413)
+  const chunks: Uint8Array[] = []
+  let size = 0
+  if (req.body) {
+    for await (const chunk of req.body) {
+      size += chunk.byteLength
+      if (size > max) throw new HttpError(413)
+      chunks.push(chunk)
+    }
+  }
+  return new Uint8Array(Buffer.concat(chunks))
+}
+
 export async function readJson(req: Request): Promise<Record<string, unknown>> {
   if (Number(req.headers.get("content-length") ?? 0) > MAX_JSON) throw new HttpError(413)
   const chunks: Uint8Array[] = []
