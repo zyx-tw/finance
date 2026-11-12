@@ -92,6 +92,8 @@ flowchart LR
   S --> D[(SQLite)]
 ```
 
+A merge to `main` deploys itself: the pull request builds the bundle (`deploy/release.Dockerfile`), and land ships it to the finance CT, where carrel-deployd runs `deploy/carrel-start.sh`.
+
 ## License
 
 [MIT](LICENSE)
