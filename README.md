@@ -16,6 +16,7 @@ You send it your statements. It shows your net worth, where each month's money w
 - **Card cycles**: closing day, due day, the day you usually pay, and the next due date.
 - **Transfers**: money that leaves one account and reaches another counts once, not as a cost.
 - **Inbox**: rows with no category wait for one click. The merchant's other rows follow.
+- **Suggestions**: Claude guesses a category or a transfer for each new inbox merchant. A guess changes no number until you accept it. Claude sees the merchant name, one description and whether money came in or went out, never an amount or an account.
 - **MCP**: 7 tools at `/mcp` for an agent to read the ledger and import into it.
 
 ## Quick start
@@ -61,6 +62,8 @@ Every route takes `Authorization: Bearer <FINANCE_TOKEN>` or a signed-in browser
 | `GET /api/v1/summary?month=` | net worth, income, spending, savings rate, runway, categories, every month |
 | `GET /api/v1/transactions?month=&account=&category=&q=&inbox=1` | lists transactions, newest first |
 | `PATCH /api/v1/transactions/<id>` | sets `category`, or `kind` to `transfer` |
+| `POST /api/v1/suggestions` | asks Claude about inbox merchants it has not seen |
+| `POST /api/v1/suggestions/accept` | accepts the guesses, for `ids` or for every row |
 | `GET /api/v1/recurring` | subscriptions with the next date and the monthly total |
 | `GET /api/v1/cards` | each card's cycle and next due date |
 | `GET /api/v1/accounts` | accounts with the latest balance |
@@ -72,6 +75,7 @@ Every route takes `Authorization: Bearer <FINANCE_TOKEN>` or a signed-in browser
 |-----|------|---------|
 | `FINANCE_ORIGIN` | the app origin, also the sign-in token audience | `http://localhost:8080` |
 | `FINANCE_TOKEN` | the bearer token for importers and MCP, 32 characters or more | off |
+| `FINANCE_ANTHROPIC_KEY` | the Anthropic API key for suggestions | off |
 | `FINANCE_AUTH_ORIGIN` | where sign-in happens | `https://auth.zyx.tw` |
 | `FINANCE_DATA` | the folder for the database | `./data` |
 | `FINANCE_DIST` | the built web app | `./dist` |

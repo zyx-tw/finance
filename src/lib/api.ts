@@ -28,6 +28,8 @@ export type Transaction = {
   merchant: string
   kind: "expense" | "income" | "transfer" | "fee"
   category: string | null
+  /** A model's guess, a category or "Transfer", that changes nothing until accepted. */
+  suggestion: string | null
 }
 
 export type Recurring = {
