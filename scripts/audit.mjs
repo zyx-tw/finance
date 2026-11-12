@@ -107,6 +107,11 @@ async function audit() {
   try {
     for (const viewport of VIEWPORTS) {
       const page = await browser.newPage({ viewport, reducedMotion: 'reduce' });
+      // AUDIT_TOKEN audits the signed-in page: the bearer token goes to this origin only.
+      if (process.env.AUDIT_TOKEN) {
+        const origin = new URL(positionals[0]).origin;
+        await page.route(`${origin}/**`, route => route.continue({ headers: { ...route.request().headers(), authorization: `Bearer ${process.env.AUDIT_TOKEN}` } }));
+      }
       await page.goto(positionals[0], { waitUntil: 'networkidle' });
       await page.evaluate(() => document.fonts.ready);
       const size = `${viewport.width}x${viewport.height}`;

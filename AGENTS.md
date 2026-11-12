@@ -15,6 +15,7 @@
 - Real statements and their text never go in git. Tests use made-up statements.
 - A bank row with no category stays out of income and spending until someone reviews it. A card row always counts.
 - Two kinds of caller: a browser session from auth.zyx.tw, and the bearer token in `FINANCE_TOKEN` for importers and MCP. `/mcp` takes the token only.
+- The top right corner holds text links only (`cornerLink`), never icon buttons. The d key switches light and dark.
 - The session cookie has no `Domain`. Sign-in happens only at auth.zyx.tw. Never widen either.
 - Log events with `log()` from `server/otel.ts`. Send counts, never amounts, merchant names or tokens.
 - Install, test and build on the build host, not on a laptop.
@@ -24,5 +25,7 @@
 ```sh
 bun test server ingest
 bun run typecheck && bun run lint
-npm run audit -- <url>
+AUDIT_TOKEN=<token> npm run audit -- <url>
 ```
+
+The audit needs the token: signed out, the top right corner is empty, and the audit counts that as a missing corner.
