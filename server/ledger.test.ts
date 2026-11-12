@@ -143,3 +143,20 @@ test("mcp lists its tools and answers a call", async () => {
   expect(cards[0].id).toBe("card")
   expect((await mcp("tools/call", { name: "set_category", arguments: { id: 999999 } })).result.isError).toBe(true)
 })
+
+test("a model's guess waits in the inbox until a person accepts it", async () => {
+  // No key in the test config, so asking the model is off.
+  expect((await req("/api/v1/suggestions", { method: "POST" })).status).toBe(503)
+  const unsorted = app.ledger.unsorted()
+  expect(unsorted.map(u => u.merchant)).toContain("行銀跨轉")
+  expect(unsorted.every(u => !("amount" in u))).toBe(true)
+  expect(app.ledger.saveSuggestions([{ merchant: "行銀跨轉", category: "Transfer" }])).toBe(1)
+  // The guess alone changes no number.
+  expect((await body(req("/api/v1/summary?month=2026-07"))).unreviewed.count).toBe(1)
+  expect(app.ledger.unsorted().some(u => u.merchant === "行銀跨轉")).toBe(false)
+  expect((await req("/api/v1/suggestions/accept", { method: "POST", body: JSON.stringify({ ids: ["x"] }) })).status).toBe(422)
+  expect(await body(req("/api/v1/suggestions/accept", { method: "POST", body: "{}" }))).toEqual({ accepted: 1 })
+  const s = await body(req("/api/v1/summary?month=2026-07"))
+  expect(s.unreviewed.count).toBe(0)
+  expect(s.spending).toBe(676 + 690 + 800 + 250 + 1206)
+})

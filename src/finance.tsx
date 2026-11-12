@@ -77,7 +77,7 @@ function Workspace() {
         {tab === "recurring" && <RecurringView />}
         {tab === "cards" && <CardsView />}
         {tab === "transactions" && <Transactions query={`month=${summary.month}`} summary={summary} onMonth={setMonth} onChange={load} />}
-        {tab === "inbox" && <Transactions query="inbox=1" onChange={load} />}
+        {tab === "inbox" && <Transactions query="inbox=1" inbox onChange={load} />}
       </Tabs>
     </TooltipProvider>
   )
@@ -294,7 +294,8 @@ function CardsView() {
   )
 }
 
-function Transactions({ query, summary, onMonth, onChange }: { query: string; summary?: Summary; onMonth?: (month: string) => void; onChange: () => void }) {
+function Transactions({ query, inbox, summary, onMonth, onChange }: { query: string; inbox?: boolean; summary?: Summary; onMonth?: (month: string) => void; onChange: () => void }) {
+  const [busy, setBusy] = useState(false)
   const [rows, setRows] = useState<Transaction[] | null>(null)
   const load = useCallback(() => {
     api<Transaction[]>(`/api/v1/transactions?${query}`).then(setRows, () => toast.error("Could not load"))
@@ -312,9 +313,31 @@ function Transactions({ query, summary, onMonth, onChange }: { query: string; su
     }
   }
 
+  async function run(path: string, done: (result: Record<string, number>) => string) {
+    setBusy(true)
+    try {
+      toast.success(done(await post<Record<string, number>>(path, {})))
+      load()
+      onChange()
+    } catch {
+      toast.error("Could not finish")
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const accept = (row: Transaction) => change(row.id, row.suggestion === "Transfer" ? { kind: "transfer" } : { category: row.suggestion! })
+
   if (!rows) return null
+  const guessed = rows.filter(row => row.suggestion).length
   return (
     <div className="flex flex-col gap-6">
+      {inbox && rows.length > 0 && (
+        <div className="flex justify-end gap-3">
+          <Button variant="outline" disabled={busy} onClick={() => run("/api/v1/suggestions", r => `${r.rows} rows guessed`)}>Suggest</Button>
+          {guessed > 0 && <Button disabled={busy} onClick={() => run("/api/v1/suggestions/accept", r => `${r.accepted} rows accepted`)}>Accept {guessed}</Button>}
+        </div>
+      )}
       {summary && onMonth && (
         <div className="flex justify-end">
           <MonthSelect summary={summary} onMonth={onMonth} />
@@ -349,14 +372,20 @@ function Transactions({ query, summary, onMonth, onChange }: { query: string; su
                 ) : (
                   <div className="flex items-center gap-3">
                     <Select items={CATEGORY_ITEMS} value={row.category} onValueChange={value => value && change(row.id, { category: value })}>
-                      <SelectTrigger aria-label={`Category for ${row.merchant}`} className="w-28 sm:w-40">
+                      {/* On a phone a row with a guess shows only the guess, so the name keeps its room. */}
+                      <SelectTrigger aria-label={`Category for ${row.merchant}`} className={cn("w-28 sm:w-40", !row.category && row.suggestion && "hidden sm:flex")}>
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
                         {CATEGORY_ITEMS.map(item => <SelectItem key={item.value} value={item.value}>{item.label}</SelectItem>)}
                       </SelectContent>
                     </Select>
-                    {!row.category && <Button variant="ghost" className="hidden sm:inline-flex" onClick={() => change(row.id, { kind: "transfer" })}>Transfer</Button>}
+                    {!row.category && row.suggestion && (
+                      <Button variant="ghost" title="Accept the suggestion" onClick={() => accept(row)}>
+                        {row.suggestion}?
+                      </Button>
+                    )}
+                    {!row.category && !row.suggestion && <Button variant="ghost" className="hidden sm:inline-flex" onClick={() => change(row.id, { kind: "transfer" })}>Transfer</Button>}
                   </div>
                 )}
               </TableCell>

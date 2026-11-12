@@ -2,6 +2,7 @@ import { createHash, timingSafeEqual } from "node:crypto"
 import { mkdirSync } from "node:fs"
 import { lstat } from "node:fs/promises"
 import { join, normalize, sep } from "node:path"
+import { createAdvisor } from "./ai"
 import { createAuth } from "./auth"
 import type { Config } from "./config"
 import { openDb, spendToken } from "./db"
@@ -24,6 +25,35 @@ export function createApp(config: Config, testGate?: Gate) {
     createGate({ authOrigin: config.authOrigin, app: "finance", origin: config.origin, publicKey: config.authKey, spend: (jti, expiresAt) => spendToken(db, jti, expiresAt) })
   const auth = createAuth(config, db, gate)
   const ledger = createLedger(db)
+  const advisor = createAdvisor(config.anthropicKey)
+  let suggesting: Promise<{ asked: number; rows: number }> | null = null
+  let again = false
+
+  /**
+   * Asks the model about inbox merchants it has not seen. One run at a time; a
+   * call during a run asks for one more pass, so rows imported meanwhile are not missed.
+   */
+  function suggest(): Promise<{ asked: number; rows: number }> {
+    if (!advisor) throw new HttpError(503, "suggestions are off: FINANCE_ANTHROPIC_KEY is unset")
+    if (suggesting) {
+      again = true
+      return suggesting
+    }
+    const seen = new Set<string>()
+    suggesting = (async () => {
+      const total = { asked: 0, rows: 0 }
+      do {
+        again = false
+        const asked = ledger.unsorted().filter(u => !seen.has(u.merchant))
+        asked.forEach(u => seen.add(u.merchant))
+        if (asked.length) total.rows += ledger.saveSuggestions(await advisor.suggest(asked))
+        total.asked += asked.length
+      } while (again)
+      return total
+    })().finally(() => (suggesting = null))
+    return suggesting
+  }
+
   const mcp = createMcp(ledger)
   const host = new URL(config.origin).host
   const wrongToken = createLimiter(20)
@@ -73,7 +103,16 @@ export function createApp(config: Config, testGate?: Gate) {
     if (path === "/api/v1/import" && req.method === "POST") {
       const result = ledger.importAll(await readJson(req))
       log("import.done", result)
+      // New rows get their suggestions in the background; the import does not wait.
+      if (advisor && result.inserted > 0) suggest().catch(error => log("ai.error", { error: String(error) }, "ERROR"))
       return json(result)
+    }
+    if (path === "/api/v1/suggestions" && req.method === "POST") return json(await suggest())
+    if (path === "/api/v1/suggestions/accept" && req.method === "POST") {
+      const body = await readJson(req)
+      const ids = body.ids === undefined ? undefined : Array.isArray(body.ids) && body.ids.length <= 5000 && body.ids.every(Number.isInteger) ? (body.ids as number[]) : null
+      if (ids === null) throw new HttpError(422, "ids must be a list of row ids")
+      return json(ledger.acceptSuggestions(ids))
     }
     const row = /^\/api\/v1\/transactions\/(\d+)$/.exec(path)
     if (row && req.method === "PATCH") return json(ledger.setCategory(Number(row[1]), await readJson(req)))

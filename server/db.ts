@@ -59,6 +59,10 @@ export function openDb(path: string) {
     create index if not exists transactions_date on transactions(date);
     create index if not exists transactions_merchant on transactions(merchant);
   `)
+  // A model's guess for a row still in the inbox: a category or 'Transfer'.
+  // It changes nothing until a person accepts it.
+  const columns = db.query("select name from pragma_table_info('transactions')").all() as { name: string }[]
+  if (!columns.some(c => c.name === "suggestion")) db.exec("alter table transactions add column suggestion text")
   return db
 }
 

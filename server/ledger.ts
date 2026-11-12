@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto"
 import { CATEGORIES, categorize, merchantOf, normalize } from "./categories"
+import type { Suggestion, Unsorted } from "./ai"
 import type { Db } from "./db"
 import { HttpError } from "./http"
 
@@ -18,6 +19,7 @@ export type Tx = {
   kind: TxKind
   category: string | null
   category_source: string | null
+  suggestion: string | null
 }
 
 const DATE = /^\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$/
@@ -261,7 +263,7 @@ export function createLedger(db: Db) {
     if (filter.q) add("(merchant like ? or description like ?)", `%${normalize(filter.q)}%`, `%${filter.q}%`)
     if (filter.inbox) where.push("kind in ('expense', 'income') and category is null")
     const rows = db
-      .query(`select id, account_id, date, posted_date, amount, description, merchant, kind, category, category_source from transactions ${where.length ? `where ${where.join(" and ")}` : ""} order by date desc, id desc limit ?`)
+      .query(`select id, account_id, date, posted_date, amount, description, merchant, kind, category, category_source, suggestion from transactions ${where.length ? `where ${where.join(" and ")}` : ""} order by date desc, id desc limit ?`)
       .all(...args, Math.min(Math.max(filter.limit ?? 500, 1), 2000)) as Tx[]
     return rows.map(r => ({ ...r, amount: money(r.amount) }))
   }
@@ -283,6 +285,43 @@ export function createLedger(db: Db) {
         .run(patch.category as string, row.merchant, id).changes
     }
     return { ok: true, same_merchant: same }
+  }
+
+  const INBOX = "kind in ('expense', 'income') and category is null"
+
+  /** Inbox merchants nobody has guessed yet, one sample row each, for the model. */
+  function unsorted(): Unsorted[] {
+    return (
+      db
+        .query(
+          `select t.merchant, min(t.description) as description, case when sum(t.amount) > 0 then 'in' else 'out' end as direction, min(a.kind) as account_kind
+           from transactions t join accounts a on a.id = t.account_id
+           where t.kind in ('expense', 'income') and t.category is null and t.suggestion is null group by t.merchant order by t.merchant`,
+        )
+        .all() as Unsorted[]
+    )
+  }
+
+  function saveSuggestions(items: { merchant: string; category: Suggestion }[]) {
+    const put = db.query(`update transactions set suggestion = ? where merchant = ? and ${INBOX}`)
+    let rows = 0
+    db.transaction(() => {
+      for (const item of items) rows += put.run(item.category, item.merchant).changes
+    })()
+    return rows
+  }
+
+  /** A person accepts the model's guesses, for the given rows or for every row that has one. */
+  function acceptSuggestions(ids?: number[]) {
+    const pick = ids ? ` and id in (${ids.map(() => "?").join(", ") || "null"})` : ""
+    const rows = db.query(`select id, suggestion from transactions where ${INBOX} and suggestion is not null${pick}`).all(...(ids ?? [])) as { id: number; suggestion: string }[]
+    db.transaction(() => {
+      for (const row of rows) {
+        if (row.suggestion === "Transfer") db.query("update transactions set kind = 'transfer', category_source = 'user' where id = ?").run(row.id)
+        else db.query("update transactions set category = ?, category_source = 'user' where id = ?").run(row.suggestion, row.id)
+      }
+    })()
+    return { accepted: rows.length }
   }
 
   /**
@@ -373,7 +412,7 @@ export function createLedger(db: Db) {
     })
   }
 
-  return { importAll, accounts, summary, transactions, setCategory, recurring, cards }
+  return { importAll, accounts, summary, transactions, setCategory, recurring, cards, unsorted, saveSuggestions, acceptSuggestions }
 }
 
 export type Ledger = ReturnType<typeof createLedger>

@@ -13,6 +13,8 @@ export type Config = {
   authKey: JWK
   /** The bearer token for importers and MCP clients. Off when unset. */
   token: string | null
+  /** Anthropic API key for category suggestions. Off when unset. */
+  anthropicKey: string | null
 }
 
 export function loadConfig(env: Record<string, string | undefined> = process.env): Config {
@@ -26,5 +28,6 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
     authOrigin: env.FINANCE_AUTH_ORIGIN ?? "https://auth.zyx.tw",
     authKey: authKey as JWK,
     token,
+    anthropicKey: env.FINANCE_ANTHROPIC_KEY?.trim() || null,
   }
 }

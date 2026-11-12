@@ -17,6 +17,7 @@
 - Two kinds of caller: a browser session from auth.zyx.tw, and the bearer token in `FINANCE_TOKEN` for importers and MCP. `/mcp` takes the token only.
 - The top right corner holds text links only (`cornerLink`), never icon buttons. The d key switches light and dark.
 - The session cookie has no `Domain`. Sign-in happens only at auth.zyx.tw. Never widen either.
+- A model's guess goes in `suggestion` and changes no number until a person accepts it. The model gets a merchant name, one description and the direction of the money, never an amount, a date or an account.
 - Log events with `log()` from `server/otel.ts`. Send counts, never amounts, merchant names or tokens.
 - Install, test and build on the build host, not on a laptop.
 
