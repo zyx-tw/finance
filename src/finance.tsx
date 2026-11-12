@@ -140,7 +140,7 @@ function Overview({ summary, onMonth }: { summary: Summary; onMonth: (month: str
     <div className="flex flex-col gap-12">
       <section aria-label="Net worth">
         <p className="text-caption text-muted-foreground">Net worth</p>
-        <p className="text-title font-medium tabular-nums sm:text-display">{summary.net_worth === null ? "—" : money(summary.net_worth)}</p>
+        <p className="text-title font-medium tabular-nums sm:text-display">{summary.net_worth === null ? "-" : money(summary.net_worth)}</p>
         <p className="mt-2 text-caption text-muted-foreground tabular-nums">Assets {money(summary.assets)}, debt {money(summary.liabilities)}</p>
       </section>
 
@@ -153,9 +153,9 @@ function Overview({ summary, onMonth }: { summary: Summary; onMonth: (month: str
           <Stat label="Income" value={money(summary.income)} />
           <Stat label="Spending" value={money(summary.spending)} />
           <Stat label="Saved" value={money(summary.saved)} />
-          <Stat label="Savings rate" value={summary.savings_rate === null ? "—" : percent(summary.savings_rate)} />
-          <Stat label="Against usual" value={summary.versus_usual === null ? "—" : `${summary.versus_usual > 0 ? "+" : ""}${percent(summary.versus_usual)}`} note={summary.usual_spending === null ? undefined : `Usual ${money(summary.usual_spending)}`} />
-          <Stat label="Runway" value={summary.runway_months === null ? "—" : `${summary.runway_months.toFixed(1)} mo`} />
+          <Stat label="Savings rate" value={summary.savings_rate === null ? "-" : percent(summary.savings_rate)} />
+          <Stat label="Against usual" value={summary.versus_usual === null ? "-" : `${summary.versus_usual > 0 ? "+" : ""}${percent(summary.versus_usual)}`} note={summary.usual_spending === null ? undefined : `Usual ${money(summary.usual_spending)}`} />
+          <Stat label="Runway" value={summary.runway_months === null ? "-" : `${summary.runway_months.toFixed(1)} mo`} />
         </dl>
         {summary.unreviewed.count > 0 && (
           <p className="text-caption text-muted-foreground tabular-nums">
@@ -201,7 +201,7 @@ function Overview({ summary, onMonth }: { summary: Summary; onMonth: (month: str
                   <TableRow key={a.id}>
                     <TableCell className="pl-6">{a.name}</TableCell>
                     <TableCell className="hidden text-right text-muted-foreground tabular-nums sm:table-cell">{a.balance_date}</TableCell>
-                    <TableCell className="text-right tabular-nums">{a.balance === null ? "—" : money(a.balance)}</TableCell>
+                    <TableCell className="text-right tabular-nums">{a.balance === null ? "-" : money(a.balance)}</TableCell>
                   </TableRow>
                 ))}
               </Group>
@@ -287,11 +287,11 @@ function CardsView() {
         {cards.map(card => (
           <TableRow key={card.id}>
             <TableCell>{card.name}</TableCell>
-            <TableCell className="text-right tabular-nums">{card.last_statement ? money(card.last_statement.amount_due) : "—"}</TableCell>
-            <TableCell className="hidden text-right tabular-nums sm:table-cell">{card.next_closing_date ?? "—"}</TableCell>
-            <TableCell className="text-right tabular-nums">{card.next_due_date ?? "—"}</TableCell>
-            <TableCell className="hidden text-right tabular-nums md:table-cell">{card.payment_day === null ? "—" : `Day ${card.payment_day}`}</TableCell>
-            <TableCell className="hidden text-right tabular-nums md:table-cell">{card.average_statement === null ? "—" : money(card.average_statement)}</TableCell>
+            <TableCell className="text-right tabular-nums">{card.last_statement ? money(card.last_statement.amount_due) : "-"}</TableCell>
+            <TableCell className="hidden text-right tabular-nums sm:table-cell">{card.next_closing_date ?? "-"}</TableCell>
+            <TableCell className="text-right tabular-nums">{card.next_due_date ?? "-"}</TableCell>
+            <TableCell className="hidden text-right tabular-nums md:table-cell">{card.payment_day === null ? "-" : `Day ${card.payment_day}`}</TableCell>
+            <TableCell className="hidden text-right tabular-nums md:table-cell">{card.average_statement === null ? "-" : money(card.average_statement)}</TableCell>
           </TableRow>
         ))}
       </TableBody>
