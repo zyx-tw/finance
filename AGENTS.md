@@ -13,7 +13,7 @@
 - An import is safe to repeat. Never insert a transaction outside `importAll`.
 - A parser reports the statement's own total beside the sum of its rows. The CLI does not post a statement whose totals differ. Add a parser only with that check.
 - Real statements and their text never go in git. Tests use made-up statements.
-- Nobody reviews rows. Every row counts on import: income or spending by its sign, unless it is a transfer. A bank row sent to an account number is a transfer. A row the model cannot place is Income when money came in and Other when it went out, so no row stays uncategorized.
+- Nobody reviews rows. Every row counts on import: income or spending by its sign, unless it is a transfer. A transfer is money between the ledger's own accounts (`pairTransfers`); money sent to an account number outside it, a friend's or a landlord's, is spending. A row the model cannot place is Income when money came in and Other when it went out, so no row stays uncategorized.
 - Two kinds of caller: a browser session from auth.zyx.tw, and the bearer token in `FINANCE_TOKEN` for importers and MCP. `/mcp` takes the token only.
 - The interface is in Traditional Chinese (`lang="zh-TW"`): labels, toasts, account names and the category names shown (`CATEGORY_LABEL`). The API, MCP and the database keep the English category names. The product name stays Finance.
 - The top right corner holds text links only (`cornerLink`), never icon buttons. The d key switches light and dark.
