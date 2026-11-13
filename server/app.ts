@@ -55,6 +55,7 @@ export function createApp(config: Config, testGate?: Gate, extract: Extract = pd
       .finally(() => (sorting = null))
   }
   // Rows left from a run that failed, or from before the model sorted on its own.
+  ledger.settle()
   sort()
 
   /** Every way in, the two routes and the MCP tool, sorts what it brought. */
