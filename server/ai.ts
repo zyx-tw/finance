@@ -8,6 +8,7 @@ import { log } from "./otel"
 
 export const SUGGESTIONS = [...CATEGORIES, "Transfer"] as const
 export type Suggestion = (typeof SUGGESTIONS)[number]
+export type Placed = { merchant: string; category: Suggestion }
 
 export type Unsorted = { merchant: string; description: string; direction: "in" | "out"; account_kind: string }
 
@@ -76,7 +77,7 @@ export function createAdvisor(apiKey: string | null) {
     const text = response.content.find(block => block.type === "text")
     if (!text || text.type !== "text") return []
     const items = (JSON.parse(text.text) as { items: { id: number; category: Suggestion | null }[] }).items
-    const out: { merchant: string; category: Suggestion }[] = []
+    const out: Placed[] = []
     for (const item of items) {
       const row = rows[item.id]
       if (row && item.category && SUGGESTIONS.includes(item.category)) out.push({ merchant: row.merchant, category: item.category })
@@ -84,9 +85,9 @@ export function createAdvisor(apiKey: string | null) {
     return out
   }
 
-  /** One suggestion per merchant the model could place. */
+  /** One answer per merchant the model could place. */
   async function suggest(rows: Unsorted[]) {
-    const out: { merchant: string; category: Suggestion }[] = []
+    const out: Placed[] = []
     for (let i = 0; i < rows.length; i += BATCH) out.push(...(await batch(rows.slice(i, i + BATCH))))
     log("ai.suggested", { asked: rows.length, placed: out.length })
     return out

@@ -12,10 +12,11 @@ import { CATEGORIES, api, money, patch, post, type Card, type Recurring, type Su
 import { cn } from "@/lib/utils"
 
 type Me = { authenticated: boolean }
-type Tab = "overview" | "inbox" | "transactions" | "recurring"
+type Tab = "overview" | "transactions" | "recurring"
 
 const KIND_LABEL: Record<string, string> = { deposit: "Cash", investment: "Investments", card: "Cards", loan: "Loans" }
-const CATEGORY_ITEMS = CATEGORIES.map(value => ({ value, label: value }))
+// A row is one of the categories, or a transfer between own accounts, which is no cost and no income.
+const CATEGORY_ITEMS = [...CATEGORIES, "Transfer"].map(value => ({ value, label: value }))
 
 export function FinanceApp() {
   const [me, setMe] = useState<Me | null>(null)
@@ -66,17 +67,14 @@ function Workspace() {
   return (
     <TooltipProvider>
       <Tabs value={tab} onValueChange={value => setTab(value as Tab)}>
-        {/* On a phone the 4 tabs fit the row only with tighter sides. */}
         <TabsList className="mb-6 max-w-full overflow-x-auto">
-          <TabsTrigger className="max-sm:px-1" value="overview">Overview</TabsTrigger>
-          <TabsTrigger className="max-sm:px-1" value="inbox">Inbox {summary.inbox > 0 && summary.inbox}</TabsTrigger>
-          <TabsTrigger className="max-sm:px-1" value="transactions">Transactions</TabsTrigger>
-          <TabsTrigger className="max-sm:px-1" value="recurring">Recurring</TabsTrigger>
+          <TabsTrigger value="overview">Overview</TabsTrigger>
+          <TabsTrigger value="transactions">Transactions</TabsTrigger>
+          <TabsTrigger value="recurring">Recurring</TabsTrigger>
         </TabsList>
-        {tab === "overview" && <Overview summary={summary} onMonth={setMonth} onReview={() => setTab("inbox")} />}
+        {tab === "overview" && <Overview summary={summary} onMonth={setMonth} />}
         {tab === "recurring" && <RecurringView />}
-        {tab === "transactions" && <Transactions query={`month=${summary.month}`} summary={summary} onMonth={setMonth} onChange={load} />}
-        {tab === "inbox" && <Transactions query="inbox=1" inbox onChange={load} />}
+        {tab === "transactions" && <Transactions summary={summary} onMonth={setMonth} onChange={load} />}
       </Tabs>
     </TooltipProvider>
   )
@@ -126,7 +124,7 @@ function SpendingBars({ summary, onMonth }: { summary: Summary; onMonth: (month:
   )
 }
 
-function Overview({ summary, onMonth, onReview }: { summary: Summary; onMonth: (month: string) => void; onReview: () => void }) {
+function Overview({ summary, onMonth }: { summary: Summary; onMonth: (month: string) => void }) {
   const top = Math.max(...summary.categories.map(c => c.amount), 1)
   const kinds = ["deposit", "investment", "card", "loan"].filter(kind => summary.accounts.some(a => a.kind === kind))
   return (
@@ -142,18 +140,11 @@ function Overview({ summary, onMonth, onReview }: { summary: Summary; onMonth: (
           <SectionTitle id="month-title" title="Month" />
           <MonthSelect summary={summary} onMonth={onMonth} />
         </div>
-        {/* Bank rows still in the inbox are in no total, so the month has no numbers to show yet: it shows the way to finish it. */}
-        {summary.unreviewed.count > 0 ? (
-          <div>
-            <Button onClick={onReview}>Review {summary.unreviewed.count}</Button>
-          </div>
-        ) : (
-          <dl className="grid grid-cols-3 gap-6">
-            <Stat label="Income" value={money(summary.income)} />
-            <Stat label="Spending" value={money(summary.spending)} />
-            <Stat label="Saved" value={money(summary.saved)} />
-          </dl>
-        )}
+        <dl className="grid grid-cols-3 gap-6">
+          <Stat label="Income" value={money(summary.income)} />
+          <Stat label="Spending" value={money(summary.spending)} />
+          <Stat label="Saved" value={money(summary.saved)} />
+        </dl>
       </section>
 
       <section aria-labelledby="spending-title" className="flex flex-col gap-4">
@@ -291,17 +282,16 @@ function CardsView() {
   )
 }
 
-function Transactions({ query, inbox, summary, onMonth, onChange }: { query: string; inbox?: boolean; summary?: Summary; onMonth?: (month: string) => void; onChange: () => void }) {
-  const [busy, setBusy] = useState(false)
+function Transactions({ summary, onMonth, onChange }: { summary: Summary; onMonth: (month: string) => void; onChange: () => void }) {
   const [rows, setRows] = useState<Transaction[] | null>(null)
   const load = useCallback(() => {
-    api<Transaction[]>(`/api/v1/transactions?${query}`).then(setRows, () => toast.error("Could not load"))
-  }, [query])
+    api<Transaction[]>(`/api/v1/transactions?month=${summary.month}`).then(setRows, () => toast.error("Could not load"))
+  }, [summary.month])
   useEffect(load, [load])
 
-  async function change(id: number, body: { category?: string; kind?: string }) {
+  async function change(id: number, value: string) {
     try {
-      const result = await patch<{ same_merchant: number }>(`/api/v1/transactions/${id}`, body)
+      const result = await patch<{ same_merchant: number }>(`/api/v1/transactions/${id}`, value === "Transfer" ? { kind: "transfer" } : { category: value })
       if (result.same_merchant) toast.success(`${result.same_merchant + 1} rows updated`)
       load()
       onChange()
@@ -310,36 +300,12 @@ function Transactions({ query, inbox, summary, onMonth, onChange }: { query: str
     }
   }
 
-  async function run(path: string, done: (result: Record<string, number>) => string) {
-    setBusy(true)
-    try {
-      toast.success(done(await post<Record<string, number>>(path, {})))
-      load()
-      onChange()
-    } catch {
-      toast.error("Could not finish")
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  const accept = (row: Transaction) => change(row.id, row.suggestion === "Transfer" ? { kind: "transfer" } : { category: row.suggestion! })
-
   if (!rows) return null
-  const guessed = rows.filter(row => row.suggestion).length
   return (
     <div className="flex flex-col gap-6">
-      {inbox && rows.length > 0 && (
-        <div className="flex justify-end gap-3">
-          <Button variant="outline" disabled={busy} onClick={() => run("/api/v1/suggestions", r => `${r.rows} rows guessed`)}>Suggest</Button>
-          {guessed > 0 && <Button disabled={busy} onClick={() => run("/api/v1/suggestions/accept", r => `${r.accepted} rows accepted`)}>Accept {guessed}</Button>}
-        </div>
-      )}
-      {summary && onMonth && (
-        <div className="flex justify-end">
-          <MonthSelect summary={summary} onMonth={onMonth} />
-        </div>
-      )}
+      <div className="flex justify-end">
+        <MonthSelect summary={summary} onMonth={onMonth} />
+      </div>
       <Table>
         <TableHeader>
           <TableRow>
@@ -364,27 +330,14 @@ function Transactions({ query, inbox, summary, onMonth, onChange }: { query: str
                 <span className="block truncate text-caption text-muted-foreground tabular-nums sm:hidden">{row.date.slice(5)} {money(row.amount)}</span>
               </TableCell>
               <TableCell>
-                {row.kind === "transfer" ? (
-                  <span className="text-muted-foreground">Transfer</span>
-                ) : (
-                  <div className="flex items-center gap-3">
-                    <Select items={CATEGORY_ITEMS} value={row.category} onValueChange={value => value && change(row.id, { category: value })}>
-                      {/* On a phone a row with a guess shows only the guess, so the name keeps its room. */}
-                      <SelectTrigger aria-label={`Category for ${row.merchant}`} className={cn("w-28 sm:w-40", !row.category && row.suggestion && "hidden sm:flex")}>
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {CATEGORY_ITEMS.map(item => <SelectItem key={item.value} value={item.value}>{item.label}</SelectItem>)}
-                      </SelectContent>
-                    </Select>
-                    {!row.category && row.suggestion && (
-                      <Button variant="ghost" title="Accept the suggestion" onClick={() => accept(row)}>
-                        {row.suggestion}?
-                      </Button>
-                    )}
-                    {!row.category && !row.suggestion && <Button variant="ghost" className="hidden sm:inline-flex" onClick={() => change(row.id, { kind: "transfer" })}>Transfer</Button>}
-                  </div>
-                )}
+                <Select items={CATEGORY_ITEMS} value={row.kind === "transfer" ? "Transfer" : row.category} onValueChange={value => value && change(row.id, value)}>
+                  <SelectTrigger aria-label={`Category for ${row.merchant}`} className={cn("w-28 sm:w-40", row.kind === "transfer" && "text-muted-foreground")}>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {CATEGORY_ITEMS.map(item => <SelectItem key={item.value} value={item.value}>{item.label}</SelectItem>)}
+                  </SelectContent>
+                </Select>
               </TableCell>
               <TableCell className="hidden text-right tabular-nums sm:table-cell">{money(row.amount)}</TableCell>
             </TableRow>

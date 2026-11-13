@@ -105,15 +105,15 @@ test("a card payment and the bank row behind it are one transfer", async () => {
   expect(kind("獎金")).toBe("income")
 })
 
-test("the summary leaves out transfers and bank rows nobody reviewed", async () => {
+test("the summary leaves out transfers and counts every other row", async () => {
   const s = await body(req("/api/v1/summary?month=2026-07"))
-  // 664+12 and 690 for the plans, 4 deliveries, 2 coffees, the phone bill, the furniture.
-  expect(s.spending).toBe(676 + 690 + 800 + 250 + 1206 + 1500)
+  // 664+12 and 690 for the plans, 4 deliveries, 2 coffees, the phone bill, the furniture, and a bank row with no category.
+  expect(s.spending).toBe(676 + 690 + 800 + 250 + 1206 + 1500 + 9000)
   expect(s.income).toBe(2 + 1500)
-  expect(s.unreviewed).toEqual({ count: 1, inflow: 0, outflow: 9000 })
   expect(s.net_worth).toBe(47000)
   expect(s.liabilities).toBe(3000)
   expect(s.categories.find((c: { category: string }) => c.category === "Telecom").amount).toBe(1206)
+  expect(s.categories.find((c: { category: string }) => c.category === "Uncategorized").amount).toBeGreaterThanOrEqual(9000)
 })
 
 test("recurring finds both plans of one merchant and skips the delivery app", async () => {
@@ -157,19 +157,20 @@ test("mcp lists its tools and answers a call", async () => {
   expect((await mcp("tools/call", { name: "set_category", arguments: { id: 999999 } })).result.isError).toBe(true)
 })
 
-test("a model's guess waits in the inbox until a person accepts it", async () => {
-  // No key in the test config, so asking the model is off.
-  expect((await req("/api/v1/suggestions", { method: "POST" })).status).toBe(503)
+test("the model's answer counts at once, and a person can still change it", async () => {
   const unsorted = app.ledger.unsorted()
   expect(unsorted.map(u => u.merchant)).toContain("行銀跨轉")
   expect(unsorted.every(u => !("amount" in u))).toBe(true)
-  expect(app.ledger.saveSuggestions([{ merchant: "行銀跨轉", category: "Transfer" }])).toBe(1)
-  // The guess alone changes no number.
-  expect((await body(req("/api/v1/summary?month=2026-07"))).unreviewed.count).toBe(1)
-  expect(app.ledger.unsorted().some(u => u.merchant === "行銀跨轉")).toBe(false)
-  expect((await req("/api/v1/suggestions/accept", { method: "POST", body: JSON.stringify({ ids: ["x"] }) })).status).toBe(422)
-  expect(await body(req("/api/v1/suggestions/accept", { method: "POST", body: "{}" }))).toEqual({ accepted: 1 })
+  expect(app.ledger.sort(unsorted, [{ merchant: "行銀跨轉", category: "Transfer" }])).toBe(1)
+  // The transfer left spending; merchants the model could not place are not asked again.
+  expect((await body(req("/api/v1/summary?month=2026-07"))).spending).toBe(676 + 690 + 800 + 250 + 1206 + 1500)
+  expect(app.ledger.unsorted()).toEqual([])
+  expect((await req("/api/v1/suggestions", { method: "POST" })).status).toBe(404)
+  // A category set on the transfer makes it a cost again.
+  const [row] = (await body(req("/api/v1/transactions?q=行銀跨轉"))).filter((t: { amount: number }) => t.amount === -9000)
+  expect(row.kind).toBe("transfer")
+  await req(`/api/v1/transactions/${row.id}`, { method: "PATCH", body: JSON.stringify({ category: "Housing" }) })
   const s = await body(req("/api/v1/summary?month=2026-07"))
-  expect(s.unreviewed.count).toBe(0)
-  expect(s.spending).toBe(676 + 690 + 800 + 250 + 1206 + 1500)
+  expect(s.spending).toBe(676 + 690 + 800 + 250 + 1206 + 1500 + 9000)
+  expect(s.categories.find((c: { category: string }) => c.category === "Housing").amount).toBe(9000)
 })

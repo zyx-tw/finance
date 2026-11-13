@@ -49,7 +49,8 @@ export function openDb(path: string) {
       merchant text not null,
       kind text not null check (kind in ('expense', 'income', 'transfer', 'fee')),
       category text,
-      -- 'rule' came from the built-in rules, 'user' was set by hand and never changes again.
+      -- 'rule' came from the built-in rules, 'model' from Claude, 'merchant' from a hand-set row of the same merchant;
+      -- 'user' was set by hand and never changes again.
       category_source text,
       external_id text not null,
       source text not null default '',
@@ -59,10 +60,16 @@ export function openDb(path: string) {
     create index if not exists transactions_date on transactions(date);
     create index if not exists transactions_merchant on transactions(merchant);
   `)
-  // A model's guess for a row still in the inbox: a category or 'Transfer'.
-  // It changes nothing until a person accepts it.
+  // Until 2026-11 a model's answer waited in a `suggestion` column for a person to accept it.
+  // The model now files its answers itself: apply the ones still waiting, then drop the column.
   const columns = db.query("select name from pragma_table_info('transactions')").all() as { name: string }[]
-  if (!columns.some(c => c.name === "suggestion")) db.exec("alter table transactions add column suggestion text")
+  if (columns.some(c => c.name === "suggestion")) {
+    db.exec(`
+      update transactions set kind = 'transfer', category_source = 'model' where suggestion = 'Transfer' and kind in ('expense', 'income') and category is null;
+      update transactions set category = suggestion, category_source = 'model' where suggestion is not null and kind in ('expense', 'income') and category is null;
+      alter table transactions drop column suggestion;
+    `)
+  }
   return db
 }
 
