@@ -165,11 +165,29 @@ test("the model's answer counts at once, and a person can still change it", asyn
   expect(app.ledger.sort([])).toBe(0)
   expect(app.ledger.unsorted().length).toBe(unsorted.length)
   const others = unsorted.filter(u => u.merchant !== "行銀跨轉").map(u => ({ merchant: u.merchant, category: null }))
-  expect(app.ledger.sort([{ merchant: "行銀跨轉", category: "Transfer" }, ...others])).toBe(1)
+  // A null answer files Income or Other by the row's sign: the furniture and the bonus here.
+  expect(app.ledger.sort([{ merchant: "行銀跨轉", category: "Transfer" }, ...others])).toBe(1 + others.length)
+  expect((await body(req("/api/v1/transactions?inbox=1"))).length).toBe(0)
+  expect((await body(req("/api/v1/transactions?q=獎金")))[0].category).toBe("Income")
   expect(app.ledger.unsorted()).toEqual([])
   // The transfer left spending.
   expect((await body(req("/api/v1/summary?month=2026-07"))).spending).toBe(676 + 690 + 800 + 250 + 1206 + 1500)
   expect((await req("/api/v1/suggestions", { method: "POST" })).status).toBe(404)
+})
+
+test("money sent from a bank to an account number is a transfer, and old open rows settle at start", async () => {
+  await send({ source: "to-account", transactions: [
+    { account: "bank", date: "2026-06-02", amount: -5000, description: "行銀非約跨轉 國＊銀 013 0000699517***924" },
+    { account: "bank", date: "2026-06-03", amount: -80, description: "轉帳支取 街口支付扣款" },
+  ] })
+  const june = await body(req("/api/v1/transactions?month=2026-06"))
+  expect(june.find((t: { amount: number }) => t.amount === -5000).kind).toBe("transfer")
+  expect(june.find((t: { amount: number }) => t.amount === -80).kind).toBe("expense")
+  // A row the model once left open, as before this rule.
+  app.db.exec("update transactions set category_source = 'model' where amount = -8000")
+  expect(app.ledger.settle()).toBe(1)
+  expect((await body(req("/api/v1/transactions?month=2026-06"))).find((t: { amount: number }) => t.amount === -80).category).toBe("Other")
+  expect(app.ledger.settle()).toBe(0)
 })
 
 test("a category on one transfer the model made brings back the merchant's others", async () => {

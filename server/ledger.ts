@@ -60,11 +60,16 @@ function nextOn(on: number, from: string) {
 }
 const later = (a: string, b: string) => (a > b ? a : b)
 
+/** A masked account number, as a bank prints the other side of a transfer: 0000044257***924. */
+const TO_ACCOUNT = /\d{3,}\*{2,}\d{2,}/
+
 /** What a row is when the importer does not say: a card payment moves money, it does not spend it. */
 function kindOf(accountKind: string, amount: number, description: string): TxKind {
   const name = normalize(description)
   if (accountKind === "card" && amount > 0 && /繳款|PAYMENT|扣繳/.test(name)) return "transfer"
   if (accountKind !== "card" && /信用卡款|卡費|繳卡|信用卡費/.test(name)) return "transfer"
+  // Money sent from a bank account to an account number moves money; it names no shop.
+  if (accountKind !== "card" && amount < 0 && TO_ACCOUNT.test(name)) return "transfer"
   if (amount < 0 && /手續費|年費|違約金/.test(name)) return "fee"
   if (accountKind === "card") return "expense"
   return amount > 0 ? "income" : "expense"
@@ -330,8 +335,8 @@ export function createLedger(db: Db, today = () => new Date().toISOString().slic
 
   /**
    * Files the model's answers: a category, or a transfer, for every row of the
-   * merchant nobody has placed. A merchant the model answered null for is
-   * marked as asked and stays uncategorized, so it is not asked again. A
+   * merchant nobody has placed. A merchant the model answered null for gets
+   * Income or Other by the row's sign, so no row stays uncategorized. A
    * merchant with no answer (the call failed) is left to be asked again.
    */
   function sort(placed: Placed[]) {
@@ -340,10 +345,29 @@ export function createLedger(db: Db, today = () => new Date().toISOString().slic
       for (const { merchant, category } of placed) {
         if (category === "Transfer") rows += db.query(`update transactions set kind = 'transfer', category_source = 'model' where merchant = ? and ${UNSORTED}`).run(merchant).changes
         else if (category) rows += db.query(`update transactions set category = ?, category_source = 'model' where merchant = ? and ${UNSORTED}`).run(category, merchant).changes
-        else db.query(`update transactions set category_source = 'model' where merchant = ? and ${UNSORTED}`).run(merchant)
+        // The model saw too little to decide: money in is income, money out is a cost with no better name.
+        else rows += db.query(`update transactions set category = case when amount > 0 then 'Income' else 'Other' end, category_source = 'model' where merchant = ? and ${UNSORTED}`).run(merchant).changes
       }
     })()
     return rows
+  }
+
+  /**
+   * Rows filed before these rules existed: a bank row sent to an account number
+   * becomes a transfer, and a row the model once left without a category gets
+   * Income or Other. Runs at start; it never touches a row set by hand.
+   */
+  function settle() {
+    const open = db
+      .query("select t.id, t.amount, t.description, a.kind as account_kind from transactions t join accounts a on a.id = t.account_id where t.kind in ('expense', 'income') and t.category is null and t.category_source = 'model'")
+      .all() as { id: number; amount: number; description: string; account_kind: string }[]
+    db.transaction(() => {
+      for (const row of open) {
+        if (kindOf(row.account_kind, row.amount, row.description) === "transfer") db.query("update transactions set kind = 'transfer', category_source = 'rule' where id = ?").run(row.id)
+        else db.query("update transactions set category = ? where id = ?").run(row.amount > 0 ? "Income" : "Other", row.id)
+      }
+    })()
+    return open.length
   }
 
   /**
@@ -431,7 +455,7 @@ export function createLedger(db: Db, today = () => new Date().toISOString().slic
     })
   }
 
-  return { importAll, accounts, summary, transactions, setCategory, recurring, cards, unsorted, sort }
+  return { importAll, accounts, summary, transactions, setCategory, recurring, cards, unsorted, sort, settle }
 }
 
 export type Ledger = ReturnType<typeof createLedger>

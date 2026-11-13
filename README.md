@@ -15,7 +15,7 @@ You send it your statements. It shows your net worth, where each month's money w
 - **Recurring charges**: finds subscriptions by merchant, day of month and amount, and gives the next date.
 - **Card cycles**: closing day, due day, the day you usually pay, and the next due date.
 - **Transfers**: money that leaves one account and reaches another counts once, not as a cost.
-- **No review**: every row counts the moment it is imported. The built-in rules and Claude give it a category or mark it a transfer; change one row and the merchant's other rows follow. Claude sees the merchant name, one description, whether money came in or went out and the kind of account, with account numbers, dates and amounts scrubbed out.
+- **No review**: every row counts the moment it is imported. Money sent to an account number is a transfer; a row nothing can place is Income or Other by its sign. The built-in rules and Claude give it a category or mark it a transfer; change one row and the merchant's other rows follow. Claude sees the merchant name, one description, whether money came in or went out and the kind of account, with account numbers, dates and amounts scrubbed out.
 - **MCP**: 7 tools at `/mcp` for an agent to read the ledger and import into it.
 
 ## Quick start
