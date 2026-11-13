@@ -68,8 +68,6 @@ function kindOf(accountKind: string, amount: number, description: string): TxKin
   const name = normalize(description)
   if (accountKind === "card" && amount > 0 && /繳款|PAYMENT|扣繳/.test(name)) return "transfer"
   if (accountKind !== "card" && /信用卡款|卡費|繳卡|信用卡費/.test(name)) return "transfer"
-  // Money sent from a bank account to an account number moves money; it names no shop.
-  if (accountKind !== "card" && amount < 0 && TO_ACCOUNT.test(name)) return "transfer"
   if (amount < 0 && /手續費|年費|違約金/.test(name)) return "fee"
   if (accountKind === "card") return "expense"
   return amount > 0 ? "income" : "expense"
@@ -353,21 +351,28 @@ export function createLedger(db: Db, today = () => new Date().toISOString().slic
   }
 
   /**
-   * Rows filed before these rules existed: a bank row sent to an account number
-   * becomes a transfer, and a row the model once left without a category gets
-   * Income or Other. Runs at start; it never touches a row set by hand.
+   * Rows filed before today's rules: a bank row sent to an account number is a
+   * cost again, and a row the model once left without a category gets Income
+   * or Other. Runs at start; it never touches a row set by hand.
    */
   function settle() {
+    // Until 2026-11-13 a bank row sent to an account number was filed as a transfer. That account is
+    // usually someone else's, so the money was spent: only a row paired with one of the ledger's own
+    // accounts is a transfer, and pairTransfers finds those again.
+    const sent = (
+      db
+        .query("select t.id, t.description from transactions t join accounts a on a.id = t.account_id where t.kind = 'transfer' and t.amount < 0 and a.kind != 'card' and (t.category_source is null or t.category_source = 'rule')")
+        .all() as { id: number; description: string }[]
+    ).filter(row => TO_ACCOUNT.test(normalize(row.description)))
     const open = db
-      .query("select t.id, t.amount, t.description, a.kind as account_kind from transactions t join accounts a on a.id = t.account_id where t.kind in ('expense', 'income') and t.category is null and t.category_source = 'model'")
-      .all() as { id: number; amount: number; description: string; account_kind: string }[]
+      .query("select id, amount from transactions where kind in ('expense', 'income') and category is null and category_source = 'model'")
+      .all() as { id: number; amount: number }[]
     db.transaction(() => {
-      for (const row of open) {
-        if (kindOf(row.account_kind, row.amount, row.description) === "transfer") db.query("update transactions set kind = 'transfer', category_source = 'rule' where id = ?").run(row.id)
-        else db.query("update transactions set category = ? where id = ?").run(row.amount > 0 ? "Income" : "Other", row.id)
-      }
+      for (const row of sent) db.query("update transactions set kind = 'expense', category = 'Other', category_source = 'rule' where id = ?").run(row.id)
+      for (const row of open) db.query("update transactions set category = ? where id = ?").run(row.amount > 0 ? "Income" : "Other", row.id)
+      if (sent.length) pairTransfers()
     })()
-    return open.length
+    return sent.length + open.length
   }
 
   /**

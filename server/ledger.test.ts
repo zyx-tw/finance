@@ -175,17 +175,20 @@ test("the model's answer counts at once, and a person can still change it", asyn
   expect((await req("/api/v1/suggestions", { method: "POST" })).status).toBe(404)
 })
 
-test("money sent from a bank to an account number is a transfer, and old open rows settle at start", async () => {
+test("money sent from a bank to an account number is spent, and old rows settle at start", async () => {
   await send({ source: "to-account", transactions: [
     { account: "bank", date: "2026-06-02", amount: -5000, description: "行銀非約跨轉 國＊銀 013 0000699517***924" },
     { account: "bank", date: "2026-06-03", amount: -80, description: "轉帳支取 街口支付扣款" },
   ] })
   const june = await body(req("/api/v1/transactions?month=2026-06"))
-  expect(june.find((t: { amount: number }) => t.amount === -5000).kind).toBe("transfer")
+  expect(june.find((t: { amount: number }) => t.amount === -5000).kind).toBe("expense")
   expect(june.find((t: { amount: number }) => t.amount === -80).kind).toBe("expense")
-  // A row the model once left open, as before this rule.
+  // As the old rule left it: a transfer. And a row the model once left open.
+  app.db.exec("update transactions set kind = 'transfer', category = null, category_source = 'rule' where amount = -500000")
   app.db.exec("update transactions set category_source = 'model' where amount = -8000")
-  expect(app.ledger.settle()).toBe(1)
+  expect(app.ledger.settle()).toBe(2)
+  const sent = (await body(req("/api/v1/transactions?month=2026-06"))).find((t: { amount: number }) => t.amount === -5000)
+  expect([sent.kind, sent.category]).toEqual(["expense", "Other"])
   expect((await body(req("/api/v1/transactions?month=2026-06"))).find((t: { amount: number }) => t.amount === -80).category).toBe("Other")
   expect(app.ledger.settle()).toBe(0)
 })
