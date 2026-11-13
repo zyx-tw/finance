@@ -55,7 +55,7 @@ function cathayCard(text: string): Parsed | null {
     parser: "cathay-card",
     payload: {
       source: `cathay-card-${year}-${pad(month)}`,
-      accounts: [{ id: account, name: "Cathay CUBE", kind: "card", institution: "Cathay United Bank" }],
+      accounts: [{ id: account, name: "國泰 CUBE 卡", kind: "card", institution: "Cathay United Bank" }],
       balances: [{ account, date: closing, amount: -amountDue }],
       statements: [{ account, period: `${year}-${pad(month)}`, closing_date: closing, due_date: due, amount_due: amountDue }],
       transactions,
@@ -102,7 +102,7 @@ function taishinCard(text: string): Parsed | null {
     parser: "taishin-card",
     payload: {
       source: `taishin-card-${year}-${pad(month)}`,
-      accounts: [{ id: account, name: "Taishin Richart", kind: "card", institution: "Taishin Bank" }],
+      accounts: [{ id: account, name: "台新 Richart 卡", kind: "card", institution: "Taishin Bank" }],
       balances: [{ account, date: closingDate, amount: -amountDue }],
       statements: [{ account, period: `${year}-${pad(month)}`, closing_date: closingDate, due_date: due ? roc(due[1], due[2], due[3]) : null, amount_due: amountDue }],
       transactions,
@@ -150,7 +150,7 @@ function esunBank(text: string): Parsed | null {
     parser: "esun-bank",
     payload: {
       source: `esun-${closing.slice(0, 7)}`,
-      accounts: [{ id: account, name: "E.SUN savings", kind: "deposit", institution: "E.SUN Bank" }],
+      accounts: [{ id: account, name: "玉山存款", kind: "deposit", institution: "E.SUN Bank" }],
       balances: [{ account, date: closing, amount: num(balance[1]) }],
       statements: [],
       transactions,
@@ -210,7 +210,7 @@ function taishinBank(text: string): Parsed | null {
       rows.push({ date: `${match[1]}-${match[2]}-${match[3]}`, description: `${match[4]} ${match[7].trim()}`.trim(), amount: num(match[5]), balance: num(match[6]), amountEnd })
     }
     const result = savings(id, rows, header, "支出金額", "存入金額", num(summary[2]))
-    accounts.push({ id, name: `Taishin Richart ${last4}`, kind: "deposit", institution: "Taishin Bank" })
+    accounts.push({ id, name: `台新 Richart ${last4}`, kind: "deposit", institution: "Taishin Bank" })
     balances.push({ account: id, date: closing, amount: num(summary[2]) })
     transactions.push(...result.transactions)
     expected += num(summary[2])
@@ -245,7 +245,7 @@ function sinopacBank(text: string): Parsed | null {
     parser: "sinopac-bank",
     payload: {
       source: `sinopac-${closing.slice(0, 7)}`,
-      accounts: [{ id: account, name: "SinoPac savings", kind: "deposit", institution: "Bank SinoPac" }],
+      accounts: [{ id: account, name: "永豐存款", kind: "deposit", institution: "Bank SinoPac" }],
       balances: [{ account, date: closing, amount: num(balance[1]) }],
       statements: [],
       transactions: result.transactions,
@@ -270,13 +270,13 @@ function fubonBank(text: string): Parsed | null {
     rows.push({ date: `${match[1]}-${match[2]}-${match[3]}`, description: `${match[4]} ${match[7].trim()}`.trim(), amount: num(match[5]), balance: num(match[6]), amountEnd })
   }
   const result = savings("fubon", rows, header, "支出", "收入", num(balance[1]))
-  const accounts: Payload["accounts"] = [{ id: "fubon", name: "Fubon savings", kind: "deposit", institution: "Taipei Fubon Bank" }]
+  const accounts: Payload["accounts"] = [{ id: "fubon", name: "富邦存款", kind: "deposit", institution: "Taipei Fubon Bank" }]
   const balances: Payload["balances"] = [{ account: "fubon", date: closing, amount: num(balance[1]) }]
   // The loan total is the debt; each loan prints its own balance on a second line.
   const loans = /貸款餘額總計\s+([\d,.]+)/.exec(text)
   let loanCheck = 0
   if (loans) {
-    accounts.push({ id: "fubon-loan", name: "Fubon student loan", kind: "loan", institution: "Taipei Fubon Bank" })
+    accounts.push({ id: "fubon-loan", name: "富邦學貸", kind: "loan", institution: "Taipei Fubon Bank" })
     balances.push({ account: "fubon-loan", date: closing, amount: -num(loans[1]) })
     for (const [i, line] of all.entries()) {
       if (!/^\s*就學貸款|^\s*\S*貸款\s+\d+\*+\d+\s+[\d,]+\.\d\d/.test(line)) continue
@@ -324,7 +324,7 @@ function sinopacSecurities(text: string): Parsed | null {
     parser: "sinopac-securities",
     payload: {
       source: `sinopac-securities-${month[1]}-${month[2]}`,
-      accounts: [{ id: account, name: "SinoPac Securities", kind: "investment", institution: "SinoPac Securities" }],
+      accounts: [{ id: account, name: "永豐金證券", kind: "investment", institution: "SinoPac Securities" }],
       balances: [{ account, date: end, amount: value }],
       statements: [],
       transactions,
@@ -353,7 +353,7 @@ function nextBank(text: string): Parsed | null {
     parser: "next-bank",
     payload: {
       source: `nextbank-${closing.slice(0, 7)}`,
-      accounts: [{ id: account, name: "Next Bank savings", kind: "deposit", institution: "Next Bank" }],
+      accounts: [{ id: account, name: "將來銀行存款", kind: "deposit", institution: "Next Bank" }],
       balances: [{ account, date: closing, amount: num(balance[1]) }],
       statements: [],
       transactions,
