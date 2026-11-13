@@ -16,8 +16,6 @@ const server = Bun.serve({
   hostname: process.env.FINANCE_HOSTNAME ?? "0.0.0.0",
   maxRequestBodySize: 8 * 1024 * 1024,
   fetch(req, srv) {
-    // Asking the model takes longer than Bun's 10 second idle limit.
-    if (new URL(req.url).pathname === "/api/v1/suggestions") srv.timeout(req, 0)
     return app.fetch(req, clientIp(req, srv.requestIP(req)?.address ?? "unknown"))
   },
 })

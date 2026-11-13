@@ -13,11 +13,11 @@
 - An import is safe to repeat. Never insert a transaction outside `importAll`.
 - A parser reports the statement's own total beside the sum of its rows. The CLI does not post a statement whose totals differ. Add a parser only with that check.
 - Real statements and their text never go in git. Tests use made-up statements.
-- A bank row with no category stays out of income and spending until someone reviews it. A card row always counts.
+- Nobody reviews rows. Every row counts on import: income or spending by its sign, unless it is a transfer. A row no rule and no model could place counts as Uncategorized.
 - Two kinds of caller: a browser session from auth.zyx.tw, and the bearer token in `FINANCE_TOKEN` for importers and MCP. `/mcp` takes the token only.
 - The top right corner holds text links only (`cornerLink`), never icon buttons. The d key switches light and dark.
 - The session cookie has no `Domain`. Sign-in happens only at auth.zyx.tw. Never widen either.
-- A model's guess goes in `suggestion` and changes no number until a person accepts it. The model gets a merchant name, one description, the direction of the money and the kind of account, with numbers scrubbed out by `redact()` in `server/ai.ts`: never an amount, a date or an account number.
+- The model's answer is filed at once (`category_source = 'model'`), after every import and at start. A category set by hand (`user`) is never overwritten, and it replaces the model's answer on the merchant's other rows. The model gets a merchant name, one description, the direction of the money and the kind of account, with numbers scrubbed out by `redact()` in `server/ai.ts`: never an amount, a date or an account number.
 - Log events with `log()` from `server/otel.ts`. Send counts, never amounts, merchant names or tokens.
 - Install, test and build on the build host, not on a laptop.
 

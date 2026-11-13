@@ -12,8 +12,6 @@ export type Summary = {
   usual_spending: number | null
   versus_usual: number | null
   runway_months: number | null
-  inbox: number
-  unreviewed: { count: number; inflow: number; outflow: number }
   months: { month: string; income: number; spending: number; net: number; net_worth: number | null }[]
   categories: { category: string; amount: number; count: number }[]
   accounts: Account[]
@@ -28,8 +26,6 @@ export type Transaction = {
   merchant: string
   kind: "expense" | "income" | "transfer" | "fee"
   category: string | null
-  /** A model's guess, a category or "Transfer", that changes nothing until accepted. */
-  suggestion: string | null
 }
 
 export type Recurring = {

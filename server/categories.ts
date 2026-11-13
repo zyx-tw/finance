@@ -1,5 +1,5 @@
 // The built-in rules: the first pattern found in a description names its
-// category. They cover the common cases; everything else waits in the inbox.
+// category. They cover the common cases; everything else goes to the model (ai.ts).
 
 export const CATEGORIES = [
   "Food",

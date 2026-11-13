@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto"
 import { CATEGORIES, categorize, merchantOf, normalize } from "./categories"
-import type { Suggestion, Unsorted } from "./ai"
+import type { Placed, Unsorted } from "./ai"
 import type { Db } from "./db"
 import { HttpError } from "./http"
 
@@ -22,7 +22,6 @@ export type Tx = {
   kind: TxKind
   category: string | null
   category_source: string | null
-  suggestion: string | null
 }
 
 const DATE = /^\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$/
@@ -70,10 +69,6 @@ function kindOf(accountKind: string, amount: number, description: string): TxKin
   if (accountKind === "card") return "expense"
   return amount > 0 ? "income" : "expense"
 }
-
-// A bank row with no category could be rent or a move between own accounts.
-// Until someone says which, it stays out of income and spending. A card row is always a cost.
-const COUNTED = "(category is not null or account_id in (select id from accounts where kind = 'card'))"
 
 export function createLedger(db: Db, today = () => new Date().toISOString().slice(0, 10)) {
   /**
@@ -160,9 +155,18 @@ export function createLedger(db: Db, today = () => new Date().toISOString().slic
         if (changes) result.inserted++
         else result.duplicates++
       }
+      follow()
       result.transfers = pairTransfers()
     })()
     return result
+  }
+
+  /** A new row of a merchant someone placed by hand takes that choice, so the model is not asked and cannot undo it. */
+  function follow() {
+    const HAND = "from transactions u where u.merchant = transactions.merchant and u.category_source = 'user'"
+    const NEW = "kind in ('expense', 'income') and category is null and category_source is null"
+    db.query(`update transactions set category = (select u.category ${HAND} and u.category is not null order by u.id desc limit 1), category_source = 'merchant' where ${NEW} and exists (select 1 ${HAND} and u.category is not null)`).run()
+    db.query(`update transactions set kind = 'transfer', category_source = 'merchant' where ${NEW} and exists (select 1 ${HAND} and u.kind = 'transfer')`).run()
   }
 
   /**
@@ -211,7 +215,7 @@ export function createLedger(db: Db, today = () => new Date().toISOString().slic
         `select substr(date, 1, 7) as month,
                 sum(case when kind = 'income' then amount else 0 end) as income,
                 -sum(case when kind in ('expense', 'fee') then amount else 0 end) as spending
-         from transactions where ${COUNTED} group by 1 order by 1`,
+         from transactions group by 1 order by 1`,
       )
       .all() as { month: string; income: number; spending: number }[]
     const worth = db.query("select account_id, date, amount from balances order by date").all() as { account_id: string; date: string; amount: number }[]
@@ -235,7 +239,7 @@ export function createLedger(db: Db, today = () => new Date().toISOString().slic
     const categories = current
       ? (
           db
-            .query(`select coalesce(category, 'Uncategorized') as category, -sum(amount) as amount, count(*) as count from transactions where ${COUNTED} and kind in ('expense', 'fee') and substr(date, 1, 7) = ? group by 1 order by 2 desc`)
+            .query(`select coalesce(category, 'Uncategorized') as category, -sum(amount) as amount, count(*) as count from transactions where kind in ('expense', 'fee') and substr(date, 1, 7) = ? group by 1 order by 2 desc`)
             .all(current) as { category: string; amount: number; count: number }[]
         ).map(c => ({ ...c, amount: money(c.amount) }))
       : []
@@ -254,11 +258,6 @@ export function createLedger(db: Db, today = () => new Date().toISOString().slic
       usual_spending: usual,
       versus_usual: usual && now ? now.spending / usual - 1 : null,
       runway_months: monthly > 0 && liquid > 0 ? liquid / monthly : null,
-      inbox: (db.query("select count(*) as n from transactions where kind in ('expense', 'income') and category is null").get() as { n: number }).n,
-      // Bank rows of this month that wait in the inbox, so the month's income and spending are not whole yet.
-      unreviewed: (r => ({ count: r.n, inflow: money(r.i ?? 0), outflow: money(-(r.o ?? 0)) }))(
-        db.query(`select count(*) as n, sum(case when amount > 0 then amount end) as i, sum(case when amount < 0 then amount end) as o from transactions where kind in ('expense', 'income') and not ${COUNTED} and substr(date, 1, 7) = ?`).get(current ?? "") as { n: number; i: number | null; o: number | null },
-      ),
       months,
       categories,
       accounts: all,
@@ -278,65 +277,73 @@ export function createLedger(db: Db, today = () => new Date().toISOString().slic
     if (filter.q) add("(merchant like ? or description like ?)", `%${normalize(filter.q)}%`, `%${filter.q}%`)
     if (filter.inbox) where.push("kind in ('expense', 'income') and category is null")
     const rows = db
-      .query(`select id, account_id, date, posted_date, amount, description, merchant, kind, category, category_source, suggestion from transactions ${where.length ? `where ${where.join(" and ")}` : ""} order by date desc, id desc limit ?`)
+      .query(`select id, account_id, date, posted_date, amount, description, merchant, kind, category, category_source from transactions ${where.length ? `where ${where.join(" and ")}` : ""} order by date desc, id desc limit ?`)
       .all(...args, Math.min(Math.max(filter.limit ?? 500, 1), 2000)) as Tx[]
     return rows.map(r => ({ ...r, amount: money(r.amount) }))
   }
 
   /** A choice made by hand: it holds for this row, and for the merchant's other rows nobody chose. */
   function setCategory(id: number, patch: { category?: unknown; kind?: unknown }) {
-    const row = db.query("select id, merchant, kind from transactions where id = ?").get(id) as { id: number; merchant: string; kind: TxKind } | null
+    const row = db.query("select id, merchant, kind, amount from transactions where id = ?").get(id) as { id: number; merchant: string; kind: TxKind; amount: number } | null
     if (!row) throw new HttpError(404)
+    // What a hand-set row may change on the merchant's other rows: anything a person did not set.
+    const OTHERS = "merchant = ? and id != ? and (category_source is null or category_source != 'user')"
+    let same = 0
     if (patch.kind !== undefined) {
       if (!TX_KINDS.includes(patch.kind as TxKind)) throw new HttpError(422, `kind must be one of ${TX_KINDS.join(", ")}`)
       db.query("update transactions set kind = ?, category = case when ? = 'transfer' then null else category end, category_source = 'user' where id = ?").run(patch.kind as string, patch.kind as string, id)
+      // A merchant can be both a cost and a transfer (a landlord, a friend): only rows nobody and no rule placed, or the model placed, follow.
+      if (patch.kind === "transfer")
+        same = db.query(`update transactions set kind = 'transfer', category = null, category_source = 'merchant' where merchant = ? and id != ? and kind in ('expense', 'income') and (category_source is null or category_source = 'model')`).run(row.merchant, id).changes
     }
-    let same = 0
     if (patch.category !== undefined) {
       if (!CATEGORIES.includes(patch.category as (typeof CATEGORIES)[number])) throw new HttpError(422, `category must be one of ${CATEGORIES.join(", ")}`)
-      db.query("update transactions set category = ?, category_source = 'user' where id = ?").run(patch.category as string, id)
+      // A category on a transfer says it was a cost or an income after all.
+      const kind = row.kind === "transfer" && patch.kind === undefined ? (row.amount > 0 ? "income" : "expense") : null
+      db.query("update transactions set category = ?, kind = coalesce(?, kind), category_source = 'user' where id = ?").run(patch.category as string, kind, id)
+      // The merchant's other rows follow, and so do its transfers that the model or this merchant's rule made, each back to a cost or an income by its sign.
       same = db
-        .query("update transactions set category = ?, category_source = 'merchant' where merchant = ? and id != ? and kind != 'transfer' and (category is null or category_source in ('rule', 'merchant'))")
+        .query(
+          `update transactions set category = ?, category_source = 'merchant',
+             kind = case when kind = 'transfer' then (case when amount > 0 then 'income' else 'expense' end) else kind end
+           where ${OTHERS} and kind != 'fee' and (kind != 'transfer' or category_source in ('model', 'merchant'))`,
+        )
         .run(patch.category as string, row.merchant, id).changes
     }
     return { ok: true, same_merchant: same }
   }
 
-  const INBOX = "kind in ('expense', 'income') and category is null"
+  const UNSORTED = "kind in ('expense', 'income') and category is null and category_source is null"
 
-  /** Inbox merchants nobody has guessed yet, one sample row each, for the model. */
+  /** Merchants with no category that the model has not been asked about, one sample row each. */
   function unsorted(): Unsorted[] {
     return (
       db
         .query(
           `select t.merchant, min(t.description) as description, case when sum(t.amount) > 0 then 'in' else 'out' end as direction, min(a.kind) as account_kind
            from transactions t join accounts a on a.id = t.account_id
-           where t.kind in ('expense', 'income') and t.category is null and t.suggestion is null group by t.merchant order by t.merchant`,
+           where t.kind in ('expense', 'income') and t.category is null and t.category_source is null group by t.merchant order by t.merchant`,
         )
         .all() as Unsorted[]
     )
   }
 
-  function saveSuggestions(items: { merchant: string; category: Suggestion }[]) {
-    const put = db.query(`update transactions set suggestion = ? where merchant = ? and ${INBOX}`)
+  /**
+   * Files the model's answers: a category, or a transfer, for every row of the
+   * merchant nobody has placed. A merchant the model answered null for is
+   * marked as asked and stays uncategorized, so it is not asked again. A
+   * merchant with no answer (the call failed) is left to be asked again.
+   */
+  function sort(placed: Placed[]) {
     let rows = 0
     db.transaction(() => {
-      for (const item of items) rows += put.run(item.category, item.merchant).changes
-    })()
-    return rows
-  }
-
-  /** A person accepts the model's guesses, for the given rows or for every row that has one. */
-  function acceptSuggestions(ids?: number[]) {
-    const pick = ids ? ` and id in (${ids.map(() => "?").join(", ") || "null"})` : ""
-    const rows = db.query(`select id, suggestion from transactions where ${INBOX} and suggestion is not null${pick}`).all(...(ids ?? [])) as { id: number; suggestion: string }[]
-    db.transaction(() => {
-      for (const row of rows) {
-        if (row.suggestion === "Transfer") db.query("update transactions set kind = 'transfer', category_source = 'user' where id = ?").run(row.id)
-        else db.query("update transactions set category = ?, category_source = 'user' where id = ?").run(row.suggestion, row.id)
+      for (const { merchant, category } of placed) {
+        if (category === "Transfer") rows += db.query(`update transactions set kind = 'transfer', category_source = 'model' where merchant = ? and ${UNSORTED}`).run(merchant).changes
+        else if (category) rows += db.query(`update transactions set category = ?, category_source = 'model' where merchant = ? and ${UNSORTED}`).run(category, merchant).changes
+        else db.query(`update transactions set category_source = 'model' where merchant = ? and ${UNSORTED}`).run(merchant)
       }
     })()
-    return { accepted: rows.length }
+    return rows
   }
 
   /**
@@ -424,7 +431,7 @@ export function createLedger(db: Db, today = () => new Date().toISOString().slic
     })
   }
 
-  return { importAll, accounts, summary, transactions, setCategory, recurring, cards, unsorted, saveSuggestions, acceptSuggestions }
+  return { importAll, accounts, summary, transactions, setCategory, recurring, cards, unsorted, sort }
 }
 
 export type Ledger = ReturnType<typeof createLedger>

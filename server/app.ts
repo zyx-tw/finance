@@ -27,35 +27,44 @@ export function createApp(config: Config, testGate?: Gate, extract: Extract = pd
   const auth = createAuth(config, db, gate)
   const ledger = createLedger(db, today)
   const advisor = createAdvisor(config.anthropicKey)
-  let suggesting: Promise<{ asked: number; rows: number }> | null = null
+  let sorting: Promise<void> | null = null
   let again = false
 
   /**
-   * Asks the model about inbox merchants it has not seen. One run at a time; a
-   * call during a run asks for one more pass, so rows imported meanwhile are not missed.
+   * Asks the model about merchants with no category and files its answers. One
+   * run at a time; a call during a run asks for one more pass, so rows imported
+   * meanwhile are not missed. Runs in the background: an import does not wait.
    */
-  function suggest(): Promise<{ asked: number; rows: number }> {
-    if (!advisor) throw new HttpError(503, "suggestions are off: FINANCE_ANTHROPIC_KEY is unset")
-    if (suggesting) {
+  function sort() {
+    if (!advisor) return
+    if (sorting) {
       again = true
-      return suggesting
+      return
     }
     const seen = new Set<string>()
-    suggesting = (async () => {
-      const total = { asked: 0, rows: 0 }
+    sorting = (async () => {
       do {
         again = false
+        // A merchant asked once in this run is not asked twice, so a call that keeps failing ends the run.
         const asked = ledger.unsorted().filter(u => !seen.has(u.merchant))
         asked.forEach(u => seen.add(u.merchant))
-        if (asked.length) total.rows += ledger.saveSuggestions(await advisor.suggest(asked))
-        total.asked += asked.length
+        if (asked.length) log("ai.sorted", { asked: asked.length, rows: ledger.sort(await advisor.suggest(asked)) })
       } while (again)
-      return total
-    })().finally(() => (suggesting = null))
-    return suggesting
+    })()
+      .catch(error => log("ai.error", { error: String(error) }, "ERROR"))
+      .finally(() => (sorting = null))
+  }
+  // Rows left from a run that failed, or from before the model sorted on its own.
+  sort()
+
+  /** Every way in, the two routes and the MCP tool, sorts what it brought. */
+  function importAll(body: Record<string, unknown>) {
+    const result = ledger.importAll(body)
+    if (result.inserted > 0) sort()
+    return result
   }
 
-  const mcp = createMcp(ledger)
+  const mcp = createMcp({ ...ledger, importAll })
   const host = new URL(config.origin).host
   const wrongToken = createLimiter(20)
 
@@ -102,25 +111,15 @@ export function createApp(config: Config, testGate?: Gate, extract: Extract = pd
         return json(ledger.transactions({ month: q("month"), account: q("account"), category: q("category"), q: q("q"), inbox: q("inbox") === "1", limit: q("limit") ? Number(q("limit")) : undefined }))
     }
     if (path === "/api/v1/import" && req.method === "POST") {
-      const result = ledger.importAll(await readJson(req))
+      const result = importAll(await readJson(req))
       log("import.done", result)
-      // New rows get their suggestions in the background; the import does not wait.
-      if (advisor && result.inserted > 0) suggest().catch(error => log("ai.error", { error: String(error) }, "ERROR"))
       return json(result)
     }
     if (path === "/api/v1/statements" && req.method === "POST") {
       const parsed = await readStatement(await readBytes(req, MAX_PDF), config.pdfPassword, extract)
-      const result = ledger.importAll(parsed.payload)
+      const result = importAll(parsed.payload)
       log("statement.imported", { parser: parsed.parser, rows: parsed.payload.transactions.length, inserted: result.inserted, duplicates: result.duplicates })
-      if (advisor && result.inserted > 0) suggest().catch(error => log("ai.error", { error: String(error) }, "ERROR"))
       return json({ parser: parsed.parser, check: parsed.check!.label, rows: parsed.payload.transactions.length, ...result })
-    }
-    if (path === "/api/v1/suggestions" && req.method === "POST") return json(await suggest())
-    if (path === "/api/v1/suggestions/accept" && req.method === "POST") {
-      const body = await readJson(req)
-      const ids = body.ids === undefined ? undefined : Array.isArray(body.ids) && body.ids.length <= 5000 && body.ids.every(Number.isInteger) ? (body.ids as number[]) : null
-      if (ids === null) throw new HttpError(422, "ids must be a list of row ids")
-      return json(ledger.acceptSuggestions(ids))
     }
     const row = /^\/api\/v1\/transactions\/(\d+)$/.exec(path)
     if (row && req.method === "PATCH") return json(ledger.setCategory(Number(row[1]), await readJson(req)))

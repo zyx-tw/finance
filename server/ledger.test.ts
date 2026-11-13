@@ -105,15 +105,15 @@ test("a card payment and the bank row behind it are one transfer", async () => {
   expect(kind("獎金")).toBe("income")
 })
 
-test("the summary leaves out transfers and bank rows nobody reviewed", async () => {
+test("the summary leaves out transfers and counts every other row", async () => {
   const s = await body(req("/api/v1/summary?month=2026-07"))
-  // 664+12 and 690 for the plans, 4 deliveries, 2 coffees, the phone bill, the furniture.
-  expect(s.spending).toBe(676 + 690 + 800 + 250 + 1206 + 1500)
+  // 664+12 and 690 for the plans, 4 deliveries, 2 coffees, the phone bill, the furniture, and a bank row with no category.
+  expect(s.spending).toBe(676 + 690 + 800 + 250 + 1206 + 1500 + 9000)
   expect(s.income).toBe(2 + 1500)
-  expect(s.unreviewed).toEqual({ count: 1, inflow: 0, outflow: 9000 })
   expect(s.net_worth).toBe(47000)
   expect(s.liabilities).toBe(3000)
   expect(s.categories.find((c: { category: string }) => c.category === "Telecom").amount).toBe(1206)
+  expect(s.categories.find((c: { category: string }) => c.category === "Uncategorized").amount).toBe(9000 + 1500)
 })
 
 test("recurring finds both plans of one merchant and skips the delivery app", async () => {
@@ -157,19 +157,67 @@ test("mcp lists its tools and answers a call", async () => {
   expect((await mcp("tools/call", { name: "set_category", arguments: { id: 999999 } })).result.isError).toBe(true)
 })
 
-test("a model's guess waits in the inbox until a person accepts it", async () => {
-  // No key in the test config, so asking the model is off.
-  expect((await req("/api/v1/suggestions", { method: "POST" })).status).toBe(503)
+test("the model's answer counts at once, and a person can still change it", async () => {
   const unsorted = app.ledger.unsorted()
   expect(unsorted.map(u => u.merchant)).toContain("行銀跨轉")
   expect(unsorted.every(u => !("amount" in u))).toBe(true)
-  expect(app.ledger.saveSuggestions([{ merchant: "行銀跨轉", category: "Transfer" }])).toBe(1)
-  // The guess alone changes no number.
-  expect((await body(req("/api/v1/summary?month=2026-07"))).unreviewed.count).toBe(1)
-  expect(app.ledger.unsorted().some(u => u.merchant === "行銀跨轉")).toBe(false)
-  expect((await req("/api/v1/suggestions/accept", { method: "POST", body: JSON.stringify({ ids: ["x"] }) })).status).toBe(422)
-  expect(await body(req("/api/v1/suggestions/accept", { method: "POST", body: "{}" }))).toEqual({ accepted: 1 })
+  // A merchant with no answer, as after a failed call, is asked again; a null answer is not.
+  expect(app.ledger.sort([])).toBe(0)
+  expect(app.ledger.unsorted().length).toBe(unsorted.length)
+  const others = unsorted.filter(u => u.merchant !== "行銀跨轉").map(u => ({ merchant: u.merchant, category: null }))
+  expect(app.ledger.sort([{ merchant: "行銀跨轉", category: "Transfer" }, ...others])).toBe(1)
+  expect(app.ledger.unsorted()).toEqual([])
+  // The transfer left spending.
+  expect((await body(req("/api/v1/summary?month=2026-07"))).spending).toBe(676 + 690 + 800 + 250 + 1206 + 1500)
+  expect((await req("/api/v1/suggestions", { method: "POST" })).status).toBe(404)
+})
+
+test("a category on one transfer the model made brings back the merchant's others", async () => {
+  await send({ source: "more", transactions: [{ account: "bank", date: "2026-07-22", amount: -700, description: "行銀跨轉" }] })
+  app.ledger.sort([{ merchant: "行銀跨轉", category: "Transfer" }])
+  const rows = await body(req("/api/v1/transactions?q=行銀跨轉"))
+  const [first] = rows.filter((t: { amount: number }) => t.amount === -9000)
+  expect(rows.filter((t: { amount: number; kind: string }) => [-9000, -700].includes(t.amount)).every((t: { kind: string }) => t.kind === "transfer")).toBe(true)
+  const res = await body(req(`/api/v1/transactions/${first.id}`, { method: "PATCH", body: JSON.stringify({ category: "Housing" }) }))
+  expect(res.same_merchant).toBe(1)
   const s = await body(req("/api/v1/summary?month=2026-07"))
-  expect(s.unreviewed.count).toBe(0)
-  expect(s.spending).toBe(676 + 690 + 800 + 250 + 1206 + 1500)
+  expect(s.spending).toBe(676 + 690 + 800 + 250 + 1206 + 1500 + 9000 + 700)
+  expect(s.categories.find((c: { category: string }) => c.category === "Housing").amount).toBe(9700)
+  // Next month's row of the merchant takes the hand-set category without asking the model.
+  await send({ source: "august", transactions: [{ account: "bank", date: "2026-08-10", amount: -9000, description: "行銀跨轉" }] })
+  expect(app.ledger.unsorted().some(u => u.merchant === "行銀跨轉")).toBe(false)
+  expect((await body(req("/api/v1/transactions?month=2026-08&q=行銀跨轉")))[0].category).toBe("Housing")
+  // The row paired with the card payment was never the model's: it stays a transfer.
+  expect((await body(req("/api/v1/transactions?q=行銀跨轉"))).find((t: { amount: number }) => t.amount === -4000).kind).toBe("transfer")
+  // One row marked a transfer by hand leaves the merchant's rows that already have a category alone.
+  const [small] = (await body(req("/api/v1/transactions?q=行銀跨轉"))).filter((t: { amount: number }) => t.amount === -700)
+  await req(`/api/v1/transactions/${small.id}`, { method: "PATCH", body: JSON.stringify({ kind: "transfer" }) })
+  const after = await body(req("/api/v1/transactions?q=行銀跨轉"))
+  expect(after.find((t: { amount: number }) => t.amount === -700).kind).toBe("transfer")
+  expect(after.find((t: { amount: number; date: string }) => t.amount === -9000 && t.date === "2026-07-10").category).toBe("Housing")
+  expect(after.find((t: { amount: number; date: string }) => t.amount === -9000 && t.date === "2026-08-10").category).toBe("Housing")
+})
+
+test("the old suggestion column is applied once and never over a hand-set row", async () => {
+  const { openDb } = await import("./db")
+  const path = join(dir, "old.db")
+  const old = openDb(path)
+  old.exec("alter table transactions add column suggestion text")
+  old.exec("insert into accounts (id, name, kind, created_at) values ('bank', 'Bank', 'deposit', 0)")
+  const add = old.query("insert into transactions (account_id, date, amount, description, merchant, kind, category, category_source, external_id, created_at, suggestion) values ('bank', '2026-07-01', -100, ?, ?, 'expense', ?, ?, ?, 0, ?)")
+  add.run("a", "a", null, null, "1", "Transfer")
+  add.run("b", "b", null, null, "2", "Food")
+  add.run("c", "c", null, "user", "3", "Transfer")
+  add.run("d", "d", "Other", "user", "4", "Food")
+  old.close()
+  const db = openDb(path)
+  const rows = db.query("select merchant, kind, category, category_source from transactions order by merchant").all()
+  expect(rows).toEqual([
+    { merchant: "a", kind: "transfer", category: null, category_source: "model" },
+    { merchant: "b", kind: "expense", category: "Food", category_source: "model" },
+    { merchant: "c", kind: "expense", category: null, category_source: "user" },
+    { merchant: "d", kind: "expense", category: "Other", category_source: "user" },
+  ])
+  db.close()
+  expect(() => openDb(path).close()).not.toThrow()
 })
