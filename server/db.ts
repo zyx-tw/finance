@@ -62,12 +62,16 @@ export function openDb(path: string) {
   `)
   // Until 2026-11 a model's answer waited in a `suggestion` column for a person to accept it.
   // The model now files its answers itself: apply the ones still waiting, then drop the column.
+  // A row someone set by hand (category_source = 'user') keeps what they chose.
   const columns = db.query("select name from pragma_table_info('transactions')").all() as { name: string }[]
   if (columns.some(c => c.name === "suggestion")) {
+    // One transaction: either the answers are applied and the column is gone, or nothing changed.
     db.exec(`
-      update transactions set kind = 'transfer', category_source = 'model' where suggestion = 'Transfer' and kind in ('expense', 'income') and category is null;
-      update transactions set category = suggestion, category_source = 'model' where suggestion is not null and kind in ('expense', 'income') and category is null;
+      begin;
+      update transactions set kind = 'transfer', category_source = 'model' where suggestion = 'Transfer' and kind in ('expense', 'income') and category is null and category_source is null;
+      update transactions set category = suggestion, category_source = 'model' where suggestion is not null and kind in ('expense', 'income') and category is null and category_source is null;
       alter table transactions drop column suggestion;
+      commit;
     `)
   }
   return db

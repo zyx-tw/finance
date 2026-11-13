@@ -8,7 +8,8 @@ import { log } from "./otel"
 
 export const SUGGESTIONS = [...CATEGORIES, "Transfer"] as const
 export type Suggestion = (typeof SUGGESTIONS)[number]
-export type Placed = { merchant: string; category: Suggestion }
+/** The model's answer for a merchant; null when it saw too little to decide. */
+export type Placed = { merchant: string; category: Suggestion | null }
 
 export type Unsorted = { merchant: string; description: string; direction: "in" | "out"; account_kind: string }
 
@@ -80,16 +81,16 @@ export function createAdvisor(apiKey: string | null) {
     const out: Placed[] = []
     for (const item of items) {
       const row = rows[item.id]
-      if (row && item.category && SUGGESTIONS.includes(item.category)) out.push({ merchant: row.merchant, category: item.category })
+      if (row) out.push({ merchant: row.merchant, category: item.category && SUGGESTIONS.includes(item.category) ? item.category : null })
     }
     return out
   }
 
-  /** One answer per merchant the model could place. */
+  /** One answer per merchant the model answered for. A batch that failed answers for none, so its merchants are asked again. */
   async function suggest(rows: Unsorted[]) {
     const out: Placed[] = []
     for (let i = 0; i < rows.length; i += BATCH) out.push(...(await batch(rows.slice(i, i + BATCH))))
-    log("ai.suggested", { asked: rows.length, placed: out.length })
+    log("ai.suggested", { asked: rows.length, answered: out.length, placed: out.filter(item => item.category).length })
     return out
   }
 

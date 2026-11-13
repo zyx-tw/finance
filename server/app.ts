@@ -41,11 +41,14 @@ export function createApp(config: Config, testGate?: Gate, extract: Extract = pd
       again = true
       return
     }
+    const seen = new Set<string>()
     sorting = (async () => {
       do {
         again = false
-        const asked = ledger.unsorted()
-        if (asked.length) log("ai.sorted", { asked: asked.length, rows: ledger.sort(asked, await advisor.suggest(asked)) })
+        // A merchant asked once in this run is not asked twice, so a call that keeps failing ends the run.
+        const asked = ledger.unsorted().filter(u => !seen.has(u.merchant))
+        asked.forEach(u => seen.add(u.merchant))
+        if (asked.length) log("ai.sorted", { asked: asked.length, rows: ledger.sort(await advisor.suggest(asked)) })
       } while (again)
     })()
       .catch(error => log("ai.error", { error: String(error) }, "ERROR"))
@@ -54,7 +57,14 @@ export function createApp(config: Config, testGate?: Gate, extract: Extract = pd
   // Rows left from a run that failed, or from before the model sorted on its own.
   sort()
 
-  const mcp = createMcp(ledger)
+  /** Every way in, the two routes and the MCP tool, sorts what it brought. */
+  function importAll(body: Record<string, unknown>) {
+    const result = ledger.importAll(body)
+    if (result.inserted > 0) sort()
+    return result
+  }
+
+  const mcp = createMcp({ ...ledger, importAll })
   const host = new URL(config.origin).host
   const wrongToken = createLimiter(20)
 
@@ -101,16 +111,14 @@ export function createApp(config: Config, testGate?: Gate, extract: Extract = pd
         return json(ledger.transactions({ month: q("month"), account: q("account"), category: q("category"), q: q("q"), inbox: q("inbox") === "1", limit: q("limit") ? Number(q("limit")) : undefined }))
     }
     if (path === "/api/v1/import" && req.method === "POST") {
-      const result = ledger.importAll(await readJson(req))
+      const result = importAll(await readJson(req))
       log("import.done", result)
-      if (result.inserted > 0) sort()
       return json(result)
     }
     if (path === "/api/v1/statements" && req.method === "POST") {
       const parsed = await readStatement(await readBytes(req, MAX_PDF), config.pdfPassword, extract)
-      const result = ledger.importAll(parsed.payload)
+      const result = importAll(parsed.payload)
       log("statement.imported", { parser: parsed.parser, rows: parsed.payload.transactions.length, inserted: result.inserted, duplicates: result.duplicates })
-      if (result.inserted > 0) sort()
       return json({ parser: parsed.parser, check: parsed.check!.label, rows: parsed.payload.transactions.length, ...result })
     }
     const row = /^\/api\/v1\/transactions\/(\d+)$/.exec(path)

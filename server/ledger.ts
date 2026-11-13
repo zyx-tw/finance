@@ -155,9 +155,18 @@ export function createLedger(db: Db, today = () => new Date().toISOString().slic
         if (changes) result.inserted++
         else result.duplicates++
       }
+      follow()
       result.transfers = pairTransfers()
     })()
     return result
+  }
+
+  /** A new row of a merchant someone placed by hand takes that choice, so the model is not asked and cannot undo it. */
+  function follow() {
+    const HAND = "from transactions u where u.merchant = transactions.merchant and u.category_source = 'user'"
+    const NEW = "kind in ('expense', 'income') and category is null and category_source is null"
+    db.query(`update transactions set category = (select u.category ${HAND} and u.category is not null order by u.id desc limit 1), category_source = 'merchant' where ${NEW} and exists (select 1 ${HAND} and u.category is not null)`).run()
+    db.query(`update transactions set kind = 'transfer', category_source = 'merchant' where ${NEW} and exists (select 1 ${HAND} and u.kind = 'transfer')`).run()
   }
 
   /**
@@ -277,18 +286,26 @@ export function createLedger(db: Db, today = () => new Date().toISOString().slic
   function setCategory(id: number, patch: { category?: unknown; kind?: unknown }) {
     const row = db.query("select id, merchant, kind, amount from transactions where id = ?").get(id) as { id: number; merchant: string; kind: TxKind; amount: number } | null
     if (!row) throw new HttpError(404)
+    // What a hand-set row may change on the merchant's other rows: anything a person did not set.
+    const OTHERS = "merchant = ? and id != ? and (category_source is null or category_source != 'user')"
+    let same = 0
     if (patch.kind !== undefined) {
       if (!TX_KINDS.includes(patch.kind as TxKind)) throw new HttpError(422, `kind must be one of ${TX_KINDS.join(", ")}`)
       db.query("update transactions set kind = ?, category = case when ? = 'transfer' then null else category end, category_source = 'user' where id = ?").run(patch.kind as string, patch.kind as string, id)
+      if (patch.kind === "transfer") same = db.query(`update transactions set kind = 'transfer', category = null, category_source = 'merchant' where ${OTHERS} and kind in ('expense', 'income')`).run(row.merchant, id).changes
     }
-    let same = 0
     if (patch.category !== undefined) {
       if (!CATEGORIES.includes(patch.category as (typeof CATEGORIES)[number])) throw new HttpError(422, `category must be one of ${CATEGORIES.join(", ")}`)
       // A category on a transfer says it was a cost or an income after all.
       const kind = row.kind === "transfer" && patch.kind === undefined ? (row.amount > 0 ? "income" : "expense") : null
       db.query("update transactions set category = ?, kind = coalesce(?, kind), category_source = 'user' where id = ?").run(patch.category as string, kind, id)
+      // The merchant's other rows follow, and so do its transfers that the model or this merchant's rule made, each back to a cost or an income by its sign.
       same = db
-        .query("update transactions set category = ?, category_source = 'merchant' where merchant = ? and id != ? and kind != 'transfer' and (category is null or category_source in ('rule', 'merchant', 'model'))")
+        .query(
+          `update transactions set category = ?, category_source = 'merchant',
+             kind = case when kind = 'transfer' then (case when amount > 0 then 'income' else 'expense' end) else kind end
+           where ${OTHERS} and kind != 'fee' and (kind != 'transfer' or category_source in ('model', 'merchant'))`,
+        )
         .run(patch.category as string, row.merchant, id).changes
     }
     return { ok: true, same_merchant: same }
@@ -311,17 +328,16 @@ export function createLedger(db: Db, today = () => new Date().toISOString().slic
 
   /**
    * Files the model's answers: a category, or a transfer, for every row of the
-   * merchant nobody has placed. A merchant the model could not place is marked
-   * as asked and stays uncategorized, so it is not asked again.
+   * merchant nobody has placed. A merchant the model answered null for is
+   * marked as asked and stays uncategorized, so it is not asked again. A
+   * merchant with no answer (the call failed) is left to be asked again.
    */
-  function sort(asked: Unsorted[], placed: Placed[]) {
-    const answers = new Map(placed.map(item => [item.merchant, item.category]))
+  function sort(placed: Placed[]) {
     let rows = 0
     db.transaction(() => {
-      for (const { merchant } of asked) {
-        const answer = answers.get(merchant)
-        if (answer === "Transfer") rows += db.query(`update transactions set kind = 'transfer', category_source = 'model' where merchant = ? and ${UNSORTED}`).run(merchant).changes
-        else if (answer) rows += db.query(`update transactions set category = ?, category_source = 'model' where merchant = ? and ${UNSORTED}`).run(answer, merchant).changes
+      for (const { merchant, category } of placed) {
+        if (category === "Transfer") rows += db.query(`update transactions set kind = 'transfer', category_source = 'model' where merchant = ? and ${UNSORTED}`).run(merchant).changes
+        else if (category) rows += db.query(`update transactions set category = ?, category_source = 'model' where merchant = ? and ${UNSORTED}`).run(category, merchant).changes
         else db.query(`update transactions set category_source = 'model' where merchant = ? and ${UNSORTED}`).run(merchant)
       }
     })()

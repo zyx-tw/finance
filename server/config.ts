@@ -13,7 +13,7 @@ export type Config = {
   authKey: JWK
   /** The bearer token for importers and MCP clients. Off when unset. */
   token: string | null
-  /** Anthropic API key for category suggestions. Off when unset. */
+  /** Anthropic API key for sorting rows into categories. Off when unset. */
   anthropicKey: string | null
   /** The password of the banks' statement PDFs (POST /api/v1/statements). */
   pdfPassword: string | null
