@@ -13,7 +13,7 @@ import { createMcp } from "./mcp"
 import { log } from "./otel"
 import { type Extract, MAX_PDF, pdfText, readStatement } from "./statements"
 
-// Sarasa Mono TC comes from ui.zyx.tw, the design system's font host.
+// Maple Mono NF CN comes from ui.zyx.tw, the design system's font host.
 const APP_CSP = "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://ui.zyx.tw; font-src 'self' https://ui.zyx.tw; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'"
 
 const digest = (value: string) => createHash("sha256").update(value).digest()
