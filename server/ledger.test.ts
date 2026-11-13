@@ -194,7 +194,8 @@ test("a category on one transfer the model made brings back the merchant's other
   await req(`/api/v1/transactions/${small.id}`, { method: "PATCH", body: JSON.stringify({ kind: "transfer" }) })
   const after = await body(req("/api/v1/transactions?q=行銀跨轉"))
   expect(after.find((t: { amount: number }) => t.amount === -700).kind).toBe("transfer")
-  expect(after.find((t: { amount: number; date: string }) => t.amount === -9000 && t.date === "2026-07-10").category).toBe("Housing")  expect(after.find((t: { amount: number; date: string }) => t.amount === -9000 && t.date === "2026-08-10").category).toBe("Housing")
+  expect(after.find((t: { amount: number; date: string }) => t.amount === -9000 && t.date === "2026-07-10").category).toBe("Housing")
+  expect(after.find((t: { amount: number; date: string }) => t.amount === -9000 && t.date === "2026-08-10").category).toBe("Housing")
 })
 
 test("the old suggestion column is applied once and never over a hand-set row", async () => {
