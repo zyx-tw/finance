@@ -189,12 +189,12 @@ test("a category on one transfer the model made brings back the merchant's other
   expect((await body(req("/api/v1/transactions?month=2026-08&q=行銀跨轉")))[0].category).toBe("Housing")
   // The row paired with the card payment was never the model's: it stays a transfer.
   expect((await body(req("/api/v1/transactions?q=行銀跨轉"))).find((t: { amount: number }) => t.amount === -4000).kind).toBe("transfer")
-  // Marking one row a transfer by hand takes the merchant's other rows with it, and the hand-set row stays.
+  // One row marked a transfer by hand leaves the merchant's rows that already have a category alone.
   const [small] = (await body(req("/api/v1/transactions?q=行銀跨轉"))).filter((t: { amount: number }) => t.amount === -700)
   await req(`/api/v1/transactions/${small.id}`, { method: "PATCH", body: JSON.stringify({ kind: "transfer" }) })
   const after = await body(req("/api/v1/transactions?q=行銀跨轉"))
   expect(after.find((t: { amount: number }) => t.amount === -700).kind).toBe("transfer")
-  expect(after.find((t: { amount: number; date: string }) => t.amount === -9000 && t.date === "2026-07-10").category).toBe("Housing")
+  expect(after.find((t: { amount: number; date: string }) => t.amount === -9000 && t.date === "2026-07-10").category).toBe("Housing")  expect(after.find((t: { amount: number; date: string }) => t.amount === -9000 && t.date === "2026-08-10").category).toBe("Housing")
 })
 
 test("the old suggestion column is applied once and never over a hand-set row", async () => {

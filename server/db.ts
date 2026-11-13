@@ -66,13 +66,11 @@ export function openDb(path: string) {
   const columns = db.query("select name from pragma_table_info('transactions')").all() as { name: string }[]
   if (columns.some(c => c.name === "suggestion")) {
     // One transaction: either the answers are applied and the column is gone, or nothing changed.
-    db.exec(`
-      begin;
-      update transactions set kind = 'transfer', category_source = 'model' where suggestion = 'Transfer' and kind in ('expense', 'income') and category is null and category_source is null;
-      update transactions set category = suggestion, category_source = 'model' where suggestion is not null and kind in ('expense', 'income') and category is null and category_source is null;
-      alter table transactions drop column suggestion;
-      commit;
-    `)
+    db.transaction(() => {
+      db.run("update transactions set kind = 'transfer', category_source = 'model' where suggestion = 'Transfer' and kind in ('expense', 'income') and category is null and category_source is null")
+      db.run("update transactions set category = suggestion, category_source = 'model' where suggestion is not null and kind in ('expense', 'income') and category is null and category_source is null")
+      db.run("alter table transactions drop column suggestion")
+    })()
   }
   return db
 }

@@ -292,7 +292,9 @@ export function createLedger(db: Db, today = () => new Date().toISOString().slic
     if (patch.kind !== undefined) {
       if (!TX_KINDS.includes(patch.kind as TxKind)) throw new HttpError(422, `kind must be one of ${TX_KINDS.join(", ")}`)
       db.query("update transactions set kind = ?, category = case when ? = 'transfer' then null else category end, category_source = 'user' where id = ?").run(patch.kind as string, patch.kind as string, id)
-      if (patch.kind === "transfer") same = db.query(`update transactions set kind = 'transfer', category = null, category_source = 'merchant' where ${OTHERS} and kind in ('expense', 'income')`).run(row.merchant, id).changes
+      // A merchant can be both a cost and a transfer (a landlord, a friend): only rows nobody and no rule placed, or the model placed, follow.
+      if (patch.kind === "transfer")
+        same = db.query(`update transactions set kind = 'transfer', category = null, category_source = 'merchant' where merchant = ? and id != ? and kind in ('expense', 'income') and (category_source is null or category_source = 'model')`).run(row.merchant, id).changes
     }
     if (patch.category !== undefined) {
       if (!CATEGORIES.includes(patch.category as (typeof CATEGORIES)[number])) throw new HttpError(422, `category must be one of ${CATEGORIES.join(", ")}`)
