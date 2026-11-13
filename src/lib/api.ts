@@ -77,4 +77,3 @@ const whole = new Intl.NumberFormat("en-US", { maximumFractionDigits: 0 })
 
 /** NT$12,345, with a real minus sign in front. */
 export const money = (value: number) => `${value < 0 ? "−" : ""}NT$${whole.format(Math.abs(value))}`
-export const percent = (value: number) => `${value < 0 ? "−" : ""}${Math.abs(Math.round(value * 100))}%`

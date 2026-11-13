@@ -63,7 +63,7 @@ beforeAll(() => {
   mkdirSync(join(dir, "dist"))
   writeFileSync(join(dir, "dist/index.html"), "<html></html>")
   const gate = { start: () => new Response(null, { status: 302 }), callback: async () => { throw new Error("unused") }, live: async () => false, clearState: "" } as unknown as Gate
-  app = createApp(loadConfig({ FINANCE_DATA: join(dir, "data"), FINANCE_DIST: join(dir, "dist"), FINANCE_ORIGIN: ORIGIN, FINANCE_TOKEN: TOKEN }), gate)
+  app = createApp(loadConfig({ FINANCE_DATA: join(dir, "data"), FINANCE_DIST: join(dir, "dist"), FINANCE_ORIGIN: ORIGIN, FINANCE_TOKEN: TOKEN }), gate, undefined, () => "2026-07-20")
 })
 afterAll(() => rmSync(dir, { recursive: true, force: true }))
 
@@ -131,6 +131,14 @@ test("a card's next due date comes from its closing date when the last statement
   expect(card.next_closing_date).toBe("2026-08-18")
   expect(card.next_due_date).toBe("2026-09-02")
   expect(card.payment_day).toBe(5)
+})
+
+test("next dates never fall in the past when the statements are old", () => {
+  const plan = app.ledger.recurring("2026-11-13").items.find(i => i.day_of_month === 16)!
+  expect(plan.next_date).toBe("2026-11-16")
+  const [card] = app.ledger.cards("2026-11-19")
+  expect(card.next_closing_date).toBe("2026-12-18")
+  expect(card.next_due_date).toBe("2027-01-02")
 })
 
 test("a category set by hand follows to the merchant's other rows", async () => {

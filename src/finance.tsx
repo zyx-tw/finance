@@ -8,11 +8,11 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
-import { CATEGORIES, api, money, patch, percent, post, type Card, type Recurring, type Summary, type Transaction } from "@/lib/api"
+import { CATEGORIES, api, money, patch, post, type Card, type Recurring, type Summary, type Transaction } from "@/lib/api"
 import { cn } from "@/lib/utils"
 
 type Me = { authenticated: boolean }
-type Tab = "overview" | "recurring" | "cards" | "transactions" | "inbox"
+type Tab = "overview" | "inbox" | "transactions" | "recurring"
 
 const KIND_LABEL: Record<string, string> = { deposit: "Cash", investment: "Investments", card: "Cards", loan: "Loans" }
 const CATEGORY_ITEMS = CATEGORIES.map(value => ({ value, label: value }))
@@ -66,16 +66,15 @@ function Workspace() {
   return (
     <TooltipProvider>
       <Tabs value={tab} onValueChange={value => setTab(value as Tab)}>
+        {/* On a phone the 4 tabs fit the row only with tighter sides. */}
         <TabsList className="mb-6 max-w-full overflow-x-auto">
-          <TabsTrigger value="overview">Overview</TabsTrigger>
-          <TabsTrigger value="recurring">Recurring</TabsTrigger>
-          <TabsTrigger value="cards">Cards</TabsTrigger>
-          <TabsTrigger value="transactions">Transactions</TabsTrigger>
-          <TabsTrigger value="inbox">Inbox {summary.inbox > 0 && summary.inbox}</TabsTrigger>
+          <TabsTrigger className="max-sm:px-1" value="overview">Overview</TabsTrigger>
+          <TabsTrigger className="max-sm:px-1" value="inbox">Inbox {summary.inbox > 0 && summary.inbox}</TabsTrigger>
+          <TabsTrigger className="max-sm:px-1" value="transactions">Transactions</TabsTrigger>
+          <TabsTrigger className="max-sm:px-1" value="recurring">Recurring</TabsTrigger>
         </TabsList>
-        {tab === "overview" && <Overview summary={summary} onMonth={setMonth} />}
+        {tab === "overview" && <Overview summary={summary} onMonth={setMonth} onReview={() => setTab("inbox")} />}
         {tab === "recurring" && <RecurringView />}
-        {tab === "cards" && <CardsView />}
         {tab === "transactions" && <Transactions query={`month=${summary.month}`} summary={summary} onMonth={setMonth} onChange={load} />}
         {tab === "inbox" && <Transactions query="inbox=1" inbox onChange={load} />}
       </Tabs>
@@ -83,12 +82,11 @@ function Workspace() {
   )
 }
 
-function Stat({ label, value, note }: { label: string; value: string; note?: string }) {
+function Stat({ label, value }: { label: string; value: string }) {
   return (
     <div>
       <dt className="text-caption text-muted-foreground">{label}</dt>
       <dd className="text-title font-medium tabular-nums">{value}</dd>
-      {note && <dd className="text-caption text-muted-foreground">{note}</dd>}
     </div>
   )
 }
@@ -128,7 +126,7 @@ function SpendingBars({ summary, onMonth }: { summary: Summary; onMonth: (month:
   )
 }
 
-function Overview({ summary, onMonth }: { summary: Summary; onMonth: (month: string) => void }) {
+function Overview({ summary, onMonth, onReview }: { summary: Summary; onMonth: (month: string) => void; onReview: () => void }) {
   const top = Math.max(...summary.categories.map(c => c.amount), 1)
   const kinds = ["deposit", "investment", "card", "loan"].filter(kind => summary.accounts.some(a => a.kind === kind))
   return (
@@ -144,18 +142,17 @@ function Overview({ summary, onMonth }: { summary: Summary; onMonth: (month: str
           <SectionTitle id="month-title" title="Month" />
           <MonthSelect summary={summary} onMonth={onMonth} />
         </div>
-        <dl className="grid grid-cols-2 gap-x-6 gap-y-6 sm:grid-cols-3 lg:grid-cols-6">
-          <Stat label="Income" value={money(summary.income)} />
-          <Stat label="Spending" value={money(summary.spending)} />
-          <Stat label="Saved" value={money(summary.saved)} />
-          <Stat label="Savings rate" value={summary.savings_rate === null ? "-" : percent(summary.savings_rate)} />
-          <Stat label="Against usual" value={summary.versus_usual === null ? "-" : `${summary.versus_usual > 0 ? "+" : ""}${percent(summary.versus_usual)}`} note={summary.usual_spending === null ? undefined : `Usual ${money(summary.usual_spending)}`} />
-          <Stat label="Runway" value={summary.runway_months === null ? "-" : `${summary.runway_months.toFixed(1)} mo`} />
-        </dl>
-        {summary.unreviewed.count > 0 && (
-          <p className="text-caption text-muted-foreground tabular-nums">
-            Not counted: {summary.unreviewed.count} bank rows in the inbox, {money(summary.unreviewed.inflow)} in and {money(summary.unreviewed.outflow)} out
-          </p>
+        {/* Bank rows still in the inbox are in no total, so the month has no numbers to show yet: it shows the way to finish it. */}
+        {summary.unreviewed.count > 0 ? (
+          <div>
+            <Button onClick={onReview}>Review {summary.unreviewed.count}</Button>
+          </div>
+        ) : (
+          <dl className="grid grid-cols-3 gap-6">
+            <Stat label="Income" value={money(summary.income)} />
+            <Stat label="Spending" value={money(summary.spending)} />
+            <Stat label="Saved" value={money(summary.saved)} />
+          </dl>
         )}
       </section>
 
@@ -232,7 +229,6 @@ function RecurringView() {
       <dl className="grid grid-cols-2 gap-6 sm:grid-cols-3">
         <Stat label="Each month" value={money(data.monthly_total)} />
         <Stat label="Each year" value={money(data.yearly_total)} />
-        <Stat label="Active" value={String(data.items.filter(i => i.active).length)} />
       </dl>
       <Table>
         <TableHeader>
@@ -256,6 +252,7 @@ function RecurringView() {
           ))}
         </TableBody>
       </Table>
+      <CardsView />
     </div>
   )
 }
@@ -265,7 +262,7 @@ function CardsView() {
   useEffect(() => {
     api<Card[]>("/api/v1/cards").then(setCards, () => toast.error("Could not load"))
   }, [])
-  if (!cards) return null
+  if (!cards?.length) return null
   return (
     <Table>
       <TableHeader>

@@ -18,14 +18,14 @@ const APP_CSP = "default-src 'self'; script-src 'self' 'unsafe-inline'; style-sr
 
 const digest = (value: string) => createHash("sha256").update(value).digest()
 
-export function createApp(config: Config, testGate?: Gate, extract: Extract = pdfText) {
+export function createApp(config: Config, testGate?: Gate, extract: Extract = pdfText, today?: () => string) {
   mkdirSync(config.data, { recursive: true })
   const db = openDb(join(config.data, "finance.db"))
   const gate =
     testGate ??
     createGate({ authOrigin: config.authOrigin, app: "finance", origin: config.origin, publicKey: config.authKey, spend: (jti, expiresAt) => spendToken(db, jti, expiresAt) })
   const auth = createAuth(config, db, gate)
-  const ledger = createLedger(db)
+  const ledger = createLedger(db, today)
   const advisor = createAdvisor(config.anthropicKey)
   let suggesting: Promise<{ asked: number; rows: number }> | null = null
   let again = false

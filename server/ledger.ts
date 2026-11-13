@@ -51,6 +51,15 @@ const median = (values: number[]) => {
   return sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2
 }
 const money = (value: number) => value / 100
+/** The first date on or after `from` that falls on this day of the month, or on the month's last day when it is shorter. */
+function nextOn(on: number, from: string) {
+  const [y, m] = from.split("-").map(Number)
+  for (let i = m - 1; ; i++) {
+    const found = iso(Date.UTC(y, i, Math.min(on, new Date(Date.UTC(y, i + 1, 0)).getUTCDate())) / 86_400_000)
+    if (found >= from) return found
+  }
+}
+const later = (a: string, b: string) => (a > b ? a : b)
 
 /** What a row is when the importer does not say: a card payment moves money, it does not spend it. */
 function kindOf(accountKind: string, amount: number, description: string): TxKind {
@@ -66,7 +75,7 @@ function kindOf(accountKind: string, amount: number, description: string): TxKin
 // Until someone says which, it stays out of income and spending. A card row is always a cost.
 const COUNTED = "(category is not null or account_id in (select id from accounts where kind = 'card'))"
 
-export function createLedger(db: Db) {
+export function createLedger(db: Db, today = () => new Date().toISOString().slice(0, 10)) {
   /**
    * Takes accounts, balances, statements and transactions in one call. Sending
    * the same payload again changes nothing: a transaction is known by its
@@ -246,8 +255,9 @@ export function createLedger(db: Db) {
       versus_usual: usual && now ? now.spending / usual - 1 : null,
       runway_months: monthly > 0 && liquid > 0 ? liquid / monthly : null,
       inbox: (db.query("select count(*) as n from transactions where kind in ('expense', 'income') and category is null").get() as { n: number }).n,
+      // Bank rows of this month that wait in the inbox, so the month's income and spending are not whole yet.
       unreviewed: (r => ({ count: r.n, inflow: money(r.i ?? 0), outflow: money(-(r.o ?? 0)) }))(
-        db.query(`select count(*) as n, sum(case when amount > 0 then amount end) as i, sum(case when amount < 0 then amount end) as o from transactions where kind in ('expense', 'income') and not ${COUNTED}`).get() as { n: number; i: number | null; o: number | null },
+        db.query(`select count(*) as n, sum(case when amount > 0 then amount end) as i, sum(case when amount < 0 then amount end) as o from transactions where kind in ('expense', 'income') and not ${COUNTED} and substr(date, 1, 7) = ?`).get(current ?? "") as { n: number; i: number | null; o: number | null },
       ),
       months,
       categories,
@@ -333,7 +343,7 @@ export function createLedger(db: Db) {
    * Charges that come back: one merchant, about once a month, about the same
    * amount. A delivery app charges many times a month, so it never qualifies.
    */
-  function recurring() {
+  function recurring(on = today()) {
     const rows = db.query("select merchant, date, amount, category from transactions where kind = 'expense' and amount < 0 order by merchant, date").all() as Pick<Tx, "merchant" | "date" | "amount" | "category">[]
     const latest = (db.query("select max(date) as d from transactions").get() as { d: string | null }).d
     // One merchant can bill two plans: charges within 3 days of the same day of month are one plan.
@@ -363,16 +373,18 @@ export function createLedger(db: Db) {
       if (amounts.filter(a => Math.abs(a - typical) <= typical * 0.15).length < amounts.length * 0.75) continue
       const gap = median(gaps)
       const last = days.at(-1)!
+      const dayOfMonth = Math.round(median(charges.map(c => Number(c.date.slice(8)))))
       found.push({
         merchant,
         category: charges.at(-1)!.category,
         amount: money(amounts.at(-1)!),
         usual_amount: money(typical),
-        day_of_month: Math.round(median(charges.map(c => Number(c.date.slice(8))))),
+        day_of_month: dayOfMonth,
         charges: charges.length,
         first_date: charges[0].date,
         last_date: charges.at(-1)!.date,
-        next_date: iso(last + Math.round(gap)),
+        // Never a day that has passed: the plan's day of the month, after today and after the last charge.
+        next_date: nextOn(dayOfMonth, later(on, iso(last + 15))),
         // No charge for a month and a half past the usual gap means it stopped.
         active: day(latest) - last <= gap + 14,
       })
@@ -383,7 +395,7 @@ export function createLedger(db: Db) {
   }
 
   /** Each card's cycle, read from its statements and from when its payments arrive. */
-  function cards() {
+  function cards(on = today()) {
     const all = accounts().filter(a => a.kind === "card")
     return all.map(card => {
       const statements = db.query("select period, closing_date, due_date, amount_due from statements where account_id = ? order by period").all(card.id) as { period: string; closing_date: string; due_date: string | null; amount_due: number }[]
@@ -393,13 +405,8 @@ export function createLedger(db: Db) {
       const dueDay = due.length ? Math.round(median(due.map(s => Number(s.due_date!.slice(8))))) : null
       const dueGap = due.length ? Math.round(median(due.map(s => day(s.due_date!) - day(s.closing_date)))) : null
       const last = statements.at(-1)
-      // The next closing and due dates: the same days, one month after the last statement.
-      const next = (from: string | null | undefined, on: number | null) => {
-        if (!from || on === null) return null
-        const [y, m] = from.split("-").map(Number)
-        const d = new Date(Date.UTC(y, m, 1))
-        return iso(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), Math.min(on, new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 0)).getUTCDate())) / 86_400_000)
-      }
+      // The next closing date: the usual day, after the last statement and never a day that has passed.
+      const closing = last && closingDay !== null ? nextOn(closingDay, later(on, iso(day(last.closing_date) + 1))) : null
       return {
         id: card.id,
         name: card.name,
@@ -409,9 +416,9 @@ export function createLedger(db: Db) {
         payment_day: payments.length ? Math.round(median(payments.map(p => Number(p.date.slice(8))))) : null,
         payments: payments.length,
         last_statement: last ? { period: last.period, closing_date: last.closing_date, due_date: last.due_date, amount_due: money(last.amount_due) } : null,
-        next_closing_date: next(last?.closing_date, closingDay),
+        next_closing_date: closing,
         // A month with nothing owed prints no due date, so count from the closing date instead.
-        next_due_date: (closing => (closing && dueGap !== null ? iso(day(closing) + dueGap) : null))(next(last?.closing_date, closingDay)),
+        next_due_date: closing && dueGap !== null ? iso(day(closing) + dueGap) : null,
         average_statement: statements.length ? money(statements.reduce((sum, s) => sum + s.amount_due, 0) / statements.length) : null,
       }
     })
