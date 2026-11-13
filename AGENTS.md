@@ -15,6 +15,7 @@
 - Real statements and their text never go in git. Tests use made-up statements.
 - Nobody reviews rows. Every row counts on import: income or spending by its sign, unless it is a transfer. A bank row sent to an account number is a transfer. A row the model cannot place is Income when money came in and Other when it went out, so no row stays uncategorized.
 - Two kinds of caller: a browser session from auth.zyx.tw, and the bearer token in `FINANCE_TOKEN` for importers and MCP. `/mcp` takes the token only.
+- The interface is in Traditional Chinese (`lang="zh-TW"`): labels, toasts, account names and the category names shown (`CATEGORY_LABEL`). The API, MCP and the database keep the English category names. The product name stays Finance.
 - The top right corner holds text links only (`cornerLink`), never icon buttons. The d key switches light and dark.
 - The session cookie has no `Domain`. Sign-in happens only at auth.zyx.tw. Never widen either.
 - The model's answer is filed at once (`category_source = 'model'`), after every import and at start. A category set by hand (`user`) is never overwritten, and it replaces the model's answer on the merchant's other rows. The model gets a merchant name, one description, the direction of the money and the kind of account, with numbers scrubbed out by `redact()` in `server/ai.ts`: never an amount, a date or an account number.

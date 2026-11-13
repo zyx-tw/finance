@@ -14,9 +14,14 @@ import { cn } from "@/lib/utils"
 type Me = { authenticated: boolean }
 type Tab = "overview" | "transactions" | "recurring"
 
-const KIND_LABEL: Record<string, string> = { deposit: "Cash", investment: "Investments", card: "Cards", loan: "Loans" }
+const KIND_LABEL: Record<string, string> = { deposit: "現金", investment: "投資", card: "信用卡", loan: "貸款" }
+// The interface is in Traditional Chinese; the API and the database keep the English category names.
+const CATEGORY_LABEL: Record<string, string> = {
+  Food: "餐飲", Delivery: "外送", Groceries: "生活採買", Transport: "交通", Shopping: "購物", Subscriptions: "訂閱", Telecom: "電信", Travel: "旅遊",
+  Health: "醫療", Entertainment: "娛樂", Education: "教育", Housing: "居住", Income: "收入", Fees: "手續費", Other: "其他", Transfer: "轉帳", Uncategorized: "未分類",
+}
 // A row is one of the categories, or a transfer between own accounts, which is no cost and no income.
-const CATEGORY_ITEMS = [...CATEGORIES, "Transfer"].map(value => ({ value, label: value }))
+const CATEGORY_ITEMS = [...CATEGORIES, "Transfer"].map(value => ({ value, label: CATEGORY_LABEL[value] }))
 
 export function FinanceApp() {
   const [me, setMe] = useState<Me | null>(null)
@@ -35,15 +40,15 @@ export function FinanceApp() {
   // The top right corner is text, as every corner is. The d key switches light and dark.
   const actions = me?.authenticated && (
     <button type="button" onClick={logout} className={cornerLink}>
-      Sign out
+      登出
     </button>
   )
 
   return (
-    <TaskShell title="Finance" actions={actions} wide center={!me?.authenticated}>
+    <TaskShell title="Finance" actions={actions} wide center={!me?.authenticated} lang="zh-TW">
       {me && !me.authenticated && (
-        <section aria-label="Sign in" className="flex justify-center gap-3">
-          <Button onClick={() => window.location.assign("/auth/start")}>Sign in</Button>
+        <section aria-label="登入" className="flex justify-center gap-3">
+          <Button onClick={() => window.location.assign("/auth/start")}>登入</Button>
         </section>
       )}
       {me?.authenticated && <Workspace />}
@@ -57,20 +62,20 @@ function Workspace() {
   const [summary, setSummary] = useState<Summary | null>(null)
 
   const load = useCallback(() => {
-    api<Summary>(`/api/v1/summary${month ? `?month=${month}` : ""}`).then(setSummary, () => toast.error("Could not load"))
+    api<Summary>(`/api/v1/summary${month ? `?month=${month}` : ""}`).then(setSummary, () => toast.error("載入失敗"))
   }, [month])
   useEffect(load, [load])
 
   if (!summary) return null
-  if (!summary.months.length) return <p className="text-body text-muted-foreground">No data</p>
+  if (!summary.months.length) return <p className="text-body text-muted-foreground">沒有資料</p>
 
   return (
     <TooltipProvider>
       <Tabs value={tab} onValueChange={value => setTab(value as Tab)}>
         <TabsList className="mb-6 max-w-full overflow-x-auto">
-          <TabsTrigger value="overview">Overview</TabsTrigger>
-          <TabsTrigger value="transactions">Transactions</TabsTrigger>
-          <TabsTrigger value="recurring">Recurring</TabsTrigger>
+          <TabsTrigger value="overview">總覽</TabsTrigger>
+          <TabsTrigger value="transactions">交易</TabsTrigger>
+          <TabsTrigger value="recurring">定期扣款</TabsTrigger>
         </TabsList>
         {tab === "overview" && <Overview summary={summary} onMonth={setMonth} />}
         {tab === "recurring" && <RecurringView />}
@@ -93,7 +98,7 @@ function MonthSelect({ summary, onMonth }: { summary: Summary; onMonth: (month: 
   const items = summary.months.map(m => ({ value: m.month, label: m.month })).reverse()
   return (
     <Select items={items} value={summary.month} onValueChange={value => value && onMonth(value)}>
-      <SelectTrigger aria-label="Month" className="w-36">
+      <SelectTrigger aria-label="月份" className="w-36">
         <SelectValue />
       </SelectTrigger>
       <SelectContent>
@@ -107,7 +112,7 @@ function MonthSelect({ summary, onMonth }: { summary: Summary; onMonth: (month: 
 function SpendingBars({ summary, onMonth }: { summary: Summary; onMonth: (month: string) => void }) {
   const max = Math.max(...summary.months.map(m => m.spending), 1)
   return (
-    <div role="group" aria-label="Spending by month" className="flex h-40 items-end gap-0.5">
+    <div role="group" aria-label="每月支出" className="flex h-40 items-end gap-0.5">
       {summary.months.map(m => (
         <Tooltip key={m.month}>
           <TooltipTrigger
@@ -129,26 +134,27 @@ function Overview({ summary, onMonth }: { summary: Summary; onMonth: (month: str
   const kinds = ["deposit", "investment", "card", "loan"].filter(kind => summary.accounts.some(a => a.kind === kind))
   return (
     <div className="flex flex-col gap-12">
-      <section aria-label="Net worth">
-        <p className="text-caption text-muted-foreground">Net worth</p>
+      <section aria-label="淨資產">
+        <p className="text-caption text-muted-foreground">淨資產</p>
         <p className="text-title font-medium tabular-nums sm:text-display">{summary.net_worth === null ? "-" : money(summary.net_worth)}</p>
-        <p className="mt-2 text-caption text-muted-foreground tabular-nums">Assets {money(summary.assets)}, debt {money(summary.liabilities)}</p>
+        <p className="mt-2 text-caption text-muted-foreground tabular-nums">資產 {money(summary.assets)}，負債 {money(summary.liabilities)}</p>
       </section>
 
       <section aria-labelledby="month-title" className="flex flex-col gap-6">
         <div className="flex items-center justify-between gap-4">
-          <SectionTitle id="month-title" title="Month" />
+          <SectionTitle id="month-title" title="本月" />
           <MonthSelect summary={summary} onMonth={onMonth} />
         </div>
-        <dl className="grid grid-cols-3 gap-6">
-          <Stat label="Income" value={money(summary.income)} />
-          <Stat label="Spending" value={money(summary.spending)} />
-          <Stat label="Saved" value={money(summary.saved)} />
+        {/* 2 columns on a phone: a 6 digit amount in the title size is wider than a third of the row. */}
+        <dl className="grid grid-cols-2 gap-6 sm:grid-cols-3">
+          <Stat label="收入" value={money(summary.income)} />
+          <Stat label="支出" value={money(summary.spending)} />
+          <Stat label="結餘" value={money(summary.saved)} />
         </dl>
       </section>
 
       <section aria-labelledby="spending-title" className="flex flex-col gap-4">
-        <SectionTitle id="spending-title" title="Spending" />
+        <SectionTitle id="spending-title" title="支出" />
         <SpendingBars summary={summary} onMonth={onMonth} />
         <div className="flex justify-between text-caption text-muted-foreground tabular-nums">
           <span>{summary.months[0].month}</span>
@@ -157,12 +163,12 @@ function Overview({ summary, onMonth }: { summary: Summary; onMonth: (month: str
       </section>
 
       <section aria-labelledby="categories-title" className="flex flex-col gap-4">
-        <SectionTitle id="categories-title" title="Categories" />
+        <SectionTitle id="categories-title" title="分類" />
         <Table>
           <TableBody>
             {summary.categories.map(c => (
               <TableRow key={c.category}>
-                <TableCell className="w-40">{c.category}</TableCell>
+                <TableCell className="w-40">{CATEGORY_LABEL[c.category] ?? c.category}</TableCell>
                 <TableCell className="hidden sm:table-cell">
                   <span className="block h-2 rounded-r-[4px] bg-foreground" style={{ width: `${Math.max((c.amount / top) * 100, 0.5)}%` }} />
                 </TableCell>
@@ -175,7 +181,7 @@ function Overview({ summary, onMonth }: { summary: Summary; onMonth: (month: str
       </section>
 
       <section aria-labelledby="accounts-title" className="flex flex-col gap-4">
-        <SectionTitle id="accounts-title" title="Balance sheet" />
+        <SectionTitle id="accounts-title" title="資產負債" />
         <Table>
           <TableBody>
             {kinds.map(kind => (
@@ -212,23 +218,23 @@ function Group({ label, total, children }: { label: string; total: number; child
 function RecurringView() {
   const [data, setData] = useState<Recurring | null>(null)
   useEffect(() => {
-    api<Recurring>("/api/v1/recurring").then(setData, () => toast.error("Could not load"))
+    api<Recurring>("/api/v1/recurring").then(setData, () => toast.error("載入失敗"))
   }, [])
   if (!data) return null
   return (
     <div className="flex flex-col gap-8">
       <dl className="grid grid-cols-2 gap-6 sm:grid-cols-3">
-        <Stat label="Each month" value={money(data.monthly_total)} />
-        <Stat label="Each year" value={money(data.yearly_total)} />
+        <Stat label="每月" value={money(data.monthly_total)} />
+        <Stat label="每年" value={money(data.yearly_total)} />
       </dl>
       <Table>
         <TableHeader>
           <TableRow>
-            <TableHead>Name</TableHead>
-            <TableHead className="text-right">Amount</TableHead>
-            <TableHead className="hidden text-right sm:table-cell">Day</TableHead>
-            <TableHead className="text-right">Next</TableHead>
-            <TableHead className="hidden text-right md:table-cell">Charges</TableHead>
+            <TableHead>名稱</TableHead>
+            <TableHead className="text-right">金額</TableHead>
+            <TableHead className="hidden text-right sm:table-cell">扣款日</TableHead>
+            <TableHead className="text-right">下次</TableHead>
+            <TableHead className="hidden text-right md:table-cell">次數</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
@@ -237,7 +243,7 @@ function RecurringView() {
               <TableCell className="w-full max-w-0 truncate">{item.merchant}</TableCell>
               <TableCell className="text-right tabular-nums">{money(item.usual_amount)}</TableCell>
               <TableCell className="hidden text-right tabular-nums sm:table-cell">{item.day_of_month}</TableCell>
-              <TableCell className="text-right tabular-nums">{item.active ? item.next_date : "Ended"}</TableCell>
+              <TableCell className="text-right tabular-nums">{item.active ? item.next_date : "已停止"}</TableCell>
               <TableCell className="hidden text-right tabular-nums md:table-cell">{item.charges}</TableCell>
             </TableRow>
           ))}
@@ -251,19 +257,19 @@ function RecurringView() {
 function CardsView() {
   const [cards, setCards] = useState<Card[] | null>(null)
   useEffect(() => {
-    api<Card[]>("/api/v1/cards").then(setCards, () => toast.error("Could not load"))
+    api<Card[]>("/api/v1/cards").then(setCards, () => toast.error("載入失敗"))
   }, [])
   if (!cards?.length) return null
   return (
     <Table>
       <TableHeader>
         <TableRow>
-          <TableHead>Card</TableHead>
-          <TableHead className="text-right">Last statement</TableHead>
-          <TableHead className="hidden text-right sm:table-cell">Closes</TableHead>
-          <TableHead className="text-right">Next due</TableHead>
-          <TableHead className="hidden text-right md:table-cell">Usually paid</TableHead>
-          <TableHead className="hidden text-right md:table-cell">Average</TableHead>
+          <TableHead>信用卡</TableHead>
+          <TableHead className="text-right">上期帳單</TableHead>
+          <TableHead className="hidden text-right sm:table-cell">結帳日</TableHead>
+          <TableHead className="text-right">繳款截止</TableHead>
+          <TableHead className="hidden text-right md:table-cell">通常繳款日</TableHead>
+          <TableHead className="hidden text-right md:table-cell">平均</TableHead>
         </TableRow>
       </TableHeader>
       <TableBody>
@@ -273,7 +279,7 @@ function CardsView() {
             <TableCell className="text-right tabular-nums">{card.last_statement ? money(card.last_statement.amount_due) : "-"}</TableCell>
             <TableCell className="hidden text-right tabular-nums sm:table-cell">{card.next_closing_date ?? "-"}</TableCell>
             <TableCell className="text-right tabular-nums">{card.next_due_date ?? "-"}</TableCell>
-            <TableCell className="hidden text-right tabular-nums md:table-cell">{card.payment_day === null ? "-" : `Day ${card.payment_day}`}</TableCell>
+            <TableCell className="hidden text-right tabular-nums md:table-cell">{card.payment_day === null ? "-" : `${card.payment_day} 日`}</TableCell>
             <TableCell className="hidden text-right tabular-nums md:table-cell">{card.average_statement === null ? "-" : money(card.average_statement)}</TableCell>
           </TableRow>
         ))}
@@ -285,18 +291,18 @@ function CardsView() {
 function Transactions({ summary, onMonth, onChange }: { summary: Summary; onMonth: (month: string) => void; onChange: () => void }) {
   const [rows, setRows] = useState<Transaction[] | null>(null)
   const load = useCallback(() => {
-    api<Transaction[]>(`/api/v1/transactions?month=${summary.month}`).then(setRows, () => toast.error("Could not load"))
+    api<Transaction[]>(`/api/v1/transactions?month=${summary.month}`).then(setRows, () => toast.error("載入失敗"))
   }, [summary.month])
   useEffect(load, [load])
 
   async function change(id: number, value: string) {
     try {
       const result = await patch<{ same_merchant: number }>(`/api/v1/transactions/${id}`, value === "Transfer" ? { kind: "transfer" } : { category: value })
-      if (result.same_merchant) toast.success(`${result.same_merchant + 1} rows updated`)
+      if (result.same_merchant) toast.success(`已更新 ${result.same_merchant + 1} 筆`)
       load()
       onChange()
     } catch {
-      toast.error("Could not save")
+      toast.error("儲存失敗")
     }
   }
 
@@ -309,16 +315,16 @@ function Transactions({ summary, onMonth, onChange }: { summary: Summary; onMont
       <Table>
         <TableHeader>
           <TableRow>
-            <TableHead className="hidden w-28 sm:table-cell">Date</TableHead>
-            <TableHead>Name</TableHead>
-            <TableHead className="w-32 sm:w-44">Category</TableHead>
-            <TableHead className="hidden w-32 text-right sm:table-cell">Amount</TableHead>
+            <TableHead className="hidden w-28 sm:table-cell">日期</TableHead>
+            <TableHead>名稱</TableHead>
+            <TableHead className="w-32 sm:w-44">分類</TableHead>
+            <TableHead className="hidden w-32 text-right sm:table-cell">金額</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
           {rows.length === 0 && (
             <TableRow>
-              <TableCell colSpan={4} className="py-10 text-center text-muted-foreground">Empty</TableCell>
+              <TableCell colSpan={4} className="py-10 text-center text-muted-foreground">沒有交易</TableCell>
             </TableRow>
           )}
           {rows.map(row => (
@@ -331,7 +337,7 @@ function Transactions({ summary, onMonth, onChange }: { summary: Summary; onMont
               </TableCell>
               <TableCell>
                 <Select items={CATEGORY_ITEMS} value={row.kind === "transfer" ? "Transfer" : row.category} onValueChange={value => value && change(row.id, value)}>
-                  <SelectTrigger aria-label={`Category for ${row.merchant}`} className={cn("w-28 sm:w-40", row.kind === "transfer" && "text-muted-foreground")}>
+                  <SelectTrigger aria-label={`${row.merchant} 的分類`} className={cn("w-28 sm:w-40", row.kind === "transfer" && "text-muted-foreground")}>
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
