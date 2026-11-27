@@ -51,10 +51,10 @@ export function FinanceApp() {
   )
 
   return (
-    <TaskShell title="Finance" actions={actions} wide center={!me?.authenticated} lang="zh-TW">
+    <TaskShell title="Finance" actions={actions} wide center={!me?.authenticated} hideTitle={!me?.authenticated} lang="zh-TW">
       {me && !me.authenticated && (
         <section aria-label="登入" className="flex w-full max-w-xl flex-col items-center gap-6">
-          <Ascii source={WORDMARK} look="classic" cell={7} effects={{ bloom: 1.2, scanlines: true }} className="block h-40 w-full" />
+          <Ascii aria-hidden="true" source={WORDMARK} look="classic" cell={7} effects={{ bloom: 1.2, scanlines: true }} className="block h-40 w-full" />
           <Button onClick={() => window.location.assign("/auth/start")}>登入</Button>
         </section>
       )}
