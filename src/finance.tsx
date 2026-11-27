@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState, type ReactNode } from "react"
 import { toast } from "sonner"
+import { MonthFlow, WorthLine } from "@/charts"
 import { cornerLink } from "@/components/corners"
 import { SectionTitle } from "@/components/section-title"
 import { TaskShell } from "@/components/task-shell"
@@ -134,6 +135,7 @@ function Overview({ summary, onMonth }: { summary: Summary; onMonth: (month: str
   const kinds = ["deposit", "investment", "card", "loan"].filter(kind => summary.accounts.some(a => a.kind === kind))
   return (
     <div className="flex flex-col gap-12">
+      {PREVIEW && <Candidates summary={summary} onMonth={onMonth} />}
       <section aria-label="淨資產">
         <p className="text-caption text-muted-foreground">淨資產</p>
         <p className="text-title font-medium tabular-nums sm:text-display">{summary.net_worth === null ? "-" : money(summary.net_worth)}</p>
@@ -199,6 +201,27 @@ function Overview({ summary, onMonth }: { summary: Summary; onMonth: (month: str
         </Table>
       </section>
     </div>
+  )
+}
+
+// finance.zyx.tw/?preview shows the 2 candidates for the main chart above the overview.
+const PREVIEW = new URLSearchParams(window.location.search).has("preview")
+
+function Candidates({ summary, onMonth }: { summary: Summary; onMonth: (month: string) => void }) {
+  return (
+    <>
+      <section aria-labelledby="flow-title" className="flex flex-col gap-4">
+        <div className="flex items-center justify-between gap-4">
+          <SectionTitle id="flow-title" title="A 收支流向" />
+          <MonthSelect summary={summary} onMonth={onMonth} />
+        </div>
+        <MonthFlow summary={summary} label={category => CATEGORY_LABEL[category] ?? category} />
+      </section>
+      <section aria-labelledby="worth-title" className="flex flex-col gap-4">
+        <SectionTitle id="worth-title" title="B 淨資產走勢" />
+        <WorthLine summary={summary} />
+      </section>
+    </>
   )
 }
 

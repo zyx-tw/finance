@@ -246,6 +246,13 @@ export function createLedger(db: Db, today = () => new Date().toISOString().slic
             .all(current) as { category: string; amount: number; count: number }[]
         ).map(c => ({ ...c, amount: money(c.amount) }))
       : []
+    const incomeSources = current
+      ? (
+          db
+            .query(`select coalesce(nullif(merchant, ''), description) as name, sum(amount) as amount from transactions where kind = 'income' and substr(date, 1, 7) = ? group by 1 order by 2 desc`)
+            .all(current) as { name: string; amount: number }[]
+        ).map(s => ({ ...s, amount: money(s.amount) }))
+      : []
     const all = accounts()
     const known = all.filter(a => a.balance !== null)
     return {
@@ -263,6 +270,7 @@ export function createLedger(db: Db, today = () => new Date().toISOString().slic
       runway_months: monthly > 0 && liquid > 0 ? liquid / monthly : null,
       months,
       categories,
+      income_sources: incomeSources,
       accounts: all,
     }
   }
