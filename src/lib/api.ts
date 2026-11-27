@@ -14,6 +14,7 @@ export type Summary = {
   runway_months: number | null
   months: { month: string; income: number; spending: number; net: number; net_worth: number | null }[]
   categories: { category: string; amount: number; count: number }[]
+  income_sources: { name: string; amount: number }[]
   accounts: Account[]
 }
 
