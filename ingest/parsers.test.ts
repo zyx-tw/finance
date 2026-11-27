@@ -50,6 +50,29 @@ test("cathay card: the amount sits before the card digits, dates take the statem
   expect(payload.balances[0].amount).toBe(-4575)
 })
 
+test("taishin card: an automatic debit is a payment, and interest belongs to the closing day", () => {
+  const text = `
+                                               115年 11月 信用卡電子帳單
+  台新銀行
+帳單結帳日                115/11/17
+繳款截止日                115/12/02
++本期新增款項                    155
+=本期累計應繳金額                  155
+                    台新銀行帳戶自動轉帳扣繳台新信用
+115/11/02 115/11/02                            -1,000
+                    卡款
+                    循環信用利息                        50
+115/11/01 115/11/04 連支＊茶Taipei                        105     TW
+`
+  const { payload, check } = parse(text)!
+  expect(checked(check)).toBe(true)
+  expect(payload.transactions.map(t => [t.date, t.amount, t.description])).toEqual([
+    ["2026-11-02", 1000, "台新銀行帳戶自動轉帳扣繳台新信用 卡款"],
+    ["2026-11-17", -50, "循環信用利息"],
+    ["2026-11-01", -105, "連支＊茶Taipei"],
+  ])
+})
+
 test("taishin card: wrapped names, foreign rows and a bill that carries the payment word", () => {
   const { parser, payload, check } = parse(TAISHIN)!
   expect(parser).toBe("taishin-card")

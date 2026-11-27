@@ -80,7 +80,15 @@ function taishinCard(text: string): Parsed | null {
   const dated = /^\s*(\d{3})\/(\d\d)\/(\d\d)\s+(\d{3})\/(\d\d)\/(\d\d)\s+(?:(.+?)\s{2,})?(-?[\d,]+)\s*(?:(?:\d\d\/?\d\d\s+)?[A-Z]{2}\b.*)?$/
   const transactions: Payload["transactions"] = []
   let purchases = 0
+  const closingDay = roc(closing[1], closing[2], closing[3])
   for (const [i, line] of all.entries()) {
+    // Interest and fees have no date: they belong to the closing day.
+    const fee = /^\s*(循環信用利息|違約金|\S*手續費)\s+(-?[\d,]+)\s*$/.exec(line)
+    if (fee) {
+      purchases += num(fee[2])
+      transactions.push({ account, date: closingDay, amount: -num(fee[2]), description: fee[1] })
+      continue
+    }
     const row = dated.exec(line)
     if (!row) continue
     let description = row[7]?.trim() ?? ""
@@ -88,16 +96,16 @@ function taishinCard(text: string): Parsed | null {
     if (!description) {
       const above = all[i - 1]?.trim() ?? ""
       const below = all[i + 1]?.trim() ?? ""
-      description = /^[A-Za-z ]{2,12}$/.test(below) ? `${above} ${below}` : above
+      description = /^[A-Za-z ]{2,12}$|^卡款$/.test(below) ? `${above} ${below}` : above
     }
     const amount = num(row[8])
     // A phone bill paid by card also carries the payment word; only money coming back to the card is a payment.
-    const payment = amount < 0 && /繳款/.test(description)
+    const payment = amount < 0 && /繳款|扣繳/.test(description)
     if (!payment) purchases += amount
     transactions.push({ account, date: roc(row[1], row[2], row[3]), posted_date: roc(row[4], row[5], row[6]), amount: -amount, description })
   }
   const amountDue = total ? num(total[1]) : 0
-  const closingDate = roc(closing[1], closing[2], closing[3])
+  const closingDate = closingDay
   return {
     parser: "taishin-card",
     payload: {
