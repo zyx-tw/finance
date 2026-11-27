@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState, type ReactNode } from "react"
 import { toast } from "sonner"
 import { MonthFlow, WorthLine } from "@/charts"
 import { Ascii, textField } from "@/components/ascii"
-import { BlockColumns, BrailleChart, Meter } from "@/components/glyph-chart"
+import { BlockColumns, BrailleChart, heat, Meter } from "@/components/glyph-chart"
 import { cornerLink } from "@/components/corners"
 import { SectionTitle } from "@/components/section-title"
 import { TaskShell } from "@/components/task-shell"
@@ -120,7 +120,7 @@ function MonthSelect({ summary, onMonth }: { summary: Summary; onMonth: (month: 
 /** A month is in the chosen period when it is that month or a month of that year. */
 const inPeriod = (month: string, period: string | null) => month === period || (period?.length === 4 && month.startsWith(`${period}-`))
 
-/** One column per month, from a shared zero, shaded by how much went out. The chosen period is solid; the rest step back. */
+/** One column per month, from a shared zero. The chosen period is amber; the rest step back. */
 function SpendingBars({ summary, onMonth }: { summary: Summary; onMonth: (month: string) => void }) {
   return (
     <BlockColumns
@@ -129,7 +129,7 @@ function SpendingBars({ summary, onMonth }: { summary: Summary; onMonth: (month:
       values={summary.months.map(m => m.spending)}
       labels={summary.months.map(m => `${m.month} ${money(m.spending)}`)}
       rows={7}
-      tone="heat"
+      className="text-data-high"
       selected={i => inPeriod(summary.months[i].month, summary.month)}
       onSelect={i => onMonth(summary.months[i].month)}
     />
@@ -159,7 +159,7 @@ function Overview({ summary, onMonth }: { summary: Summary; onMonth: (month: str
         <dl className="grid grid-cols-2 gap-6 sm:grid-cols-3">
           <Stat label="收入" value={money(summary.income)} />
           <Stat label="支出" value={money(summary.spending)} />
-          <Stat label="結餘" value={money(summary.saved)} tone={summary.saved < 0 ? "high" : "low"} />
+          <Stat label="結餘" value={money(summary.saved)} tone={summary.saved < 0 ? "high" : undefined} />
         </dl>
       </section>
 
@@ -180,7 +180,7 @@ function Overview({ summary, onMonth }: { summary: Summary; onMonth: (month: str
               <TableRow key={c.category}>
                 <TableCell className="w-40">{CATEGORY_LABEL[c.category] ?? c.category}</TableCell>
                 <TableCell className="hidden sm:table-cell">
-                  <Meter value={c.amount / top} tone="heat" />
+                  <Meter value={c.amount / top} style={{ color: heat(c.amount / top) }} />
                 </TableCell>
                 <TableCell className="w-16 text-right text-muted-foreground tabular-nums">{c.count}</TableCell>
                 <TableCell className="w-32 text-right tabular-nums">{money(c.amount)}</TableCell>
