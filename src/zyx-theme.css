@@ -27,11 +27,18 @@
   --color-muted-foreground: var(--muted-foreground);
   --color-destructive: var(--destructive);
   --color-border: var(--border);
+  --color-data-low: var(--data-low);
+  --color-data-mid: var(--data-mid);
+  --color-data-high: var(--data-high);
   --color-input: var(--input);
   --color-ring: var(--ring);
 }
 
 :root {
+  /* Data hues (ui.zyx.tw base): only on marks that encode a value. */
+  --data-low: oklch(0.72 0.15 150);
+  --data-mid: oklch(0.78 0.15 80);
+  --data-high: oklch(0.68 0.19 25);
   --background: oklch(0.97 0.005 85);
   --foreground: oklch(0.25 0 0);
   --primary: oklch(0.25 0 0);
