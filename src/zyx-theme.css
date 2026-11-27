@@ -35,10 +35,10 @@
 }
 
 :root {
-  /* Data hues (ui.zyx.tw base): only on marks that encode a value. */
-  --data-low: oklch(0.72 0.15 150);
-  --data-mid: oklch(0.78 0.15 80);
-  --data-high: oklch(0.68 0.19 25);
+  /* Data hues: one amber, brighter as the value grows. Only on marks that encode a value. */
+  --data-low: oklch(0.82 0.05 75);
+  --data-mid: oklch(0.7 0.1 70);
+  --data-high: oklch(0.58 0.13 60);
   --background: oklch(0.97 0.005 85);
   --foreground: oklch(0.25 0 0);
   --primary: oklch(0.25 0 0);
@@ -53,6 +53,9 @@
 }
 
 .dark {
+  --data-low: oklch(0.42 0.05 75);
+  --data-mid: oklch(0.62 0.1 75);
+  --data-high: oklch(0.82 0.14 75);
   --background: oklch(0.17 0 0);
   --foreground: oklch(0.88 0 0);
   --primary: oklch(0.88 0 0);
