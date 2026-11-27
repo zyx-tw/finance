@@ -231,26 +231,30 @@ export function createLedger(db: Db, today = () => new Date().toISOString().slic
     // A month still running reads as a cheap month, so the default is the last month that reached its 25th.
     const lastDay = (db.query("select max(date) as d from transactions").get() as { d: string | null }).d
     const whole = lastDay && Number(lastDay.slice(8)) < 25 && months.length > 1 ? months.at(-2)!.month : months.at(-1)?.month
-    const current = month && months.some(m => m.month === month) ? month : whole
-    const at = months.findIndex(m => m.month === current)
-    const now = at < 0 ? null : months[at]
+    // A period is a month (YYYY-MM) or a whole year (YYYY), which adds up its months.
+    const year = month && /^\d{4}$/.test(month) && months.some(m => m.month.startsWith(`${month}-`)) ? month : null
+    const current = year ?? (month && months.some(m => m.month === month) ? month : whole)
+    const at = year ? -1 : months.findIndex(m => m.month === current)
+    const inYear = year ? months.filter(m => m.month.startsWith(`${year}-`)) : []
+    const add = (key: "income" | "spending" | "net") => inYear.reduce((sum, m) => sum + m[key], 0)
+    const now = year ? { income: add("income"), spending: add("spending"), net: add("net") } : at < 0 ? null : months[at]
     const before = at < 0 ? [] : months.slice(Math.max(0, at - 6), at)
     const usual = before.length ? before.reduce((sum, m) => sum + m.spending, 0) / before.length : null
     const liquid = accounts().filter(a => a.kind === "deposit" && a.balance !== null).reduce((sum, a) => sum + a.balance!, 0)
-    const pace = [...before.slice(-3), ...(now ? [now] : [])].slice(-3)
+    const pace = year ? inYear.slice(-3) : [...before.slice(-3), ...(now ? [now] : [])].slice(-3)
     const monthly = pace.length ? pace.reduce((sum, m) => sum + m.spending, 0) / pace.length : 0
     const categories = current
       ? (
           db
-            .query(`select coalesce(category, 'Uncategorized') as category, -sum(amount) as amount, count(*) as count from transactions where kind in ('expense', 'fee') and substr(date, 1, 7) = ? group by 1 order by 2 desc`)
-            .all(current) as { category: string; amount: number; count: number }[]
+            .query(`select coalesce(category, 'Uncategorized') as category, -sum(amount) as amount, count(*) as count from transactions where kind in ('expense', 'fee') and date like ? group by 1 order by 2 desc`)
+            .all(`${current}-%`) as { category: string; amount: number; count: number }[]
         ).map(c => ({ ...c, amount: money(c.amount) }))
       : []
     const incomeSources = current
       ? (
           db
-            .query(`select coalesce(nullif(merchant, ''), description) as name, sum(amount) as amount from transactions where kind = 'income' and substr(date, 1, 7) = ? group by 1 order by 2 desc`)
-            .all(current) as { name: string; amount: number }[]
+            .query(`select coalesce(nullif(merchant, ''), description) as name, sum(amount) as amount from transactions where kind = 'income' and date like ? group by 1 order by 2 desc`)
+            .all(`${current}-%`) as { name: string; amount: number }[]
         ).map(s => ({ ...s, amount: money(s.amount) }))
       : []
     const all = accounts()
@@ -282,7 +286,8 @@ export function createLedger(db: Db, today = () => new Date().toISOString().slic
       where.push(clause)
       args.push(...values)
     }
-    if (filter.month) add("substr(date, 1, 7) = ?", filter.month)
+    // A month (YYYY-MM) or a whole year (YYYY).
+    if (filter.month) add("date like ?", `${filter.month}-%`)
     if (filter.account) add("account_id = ?", filter.account)
     if (filter.category) add("category = ?", filter.category)
     if (filter.q) add("(merchant like ? or description like ?)", `%${normalize(filter.q)}%`, `%${filter.q}%`)

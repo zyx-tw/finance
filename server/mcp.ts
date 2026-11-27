@@ -15,11 +15,12 @@ const str = (value: unknown) => (typeof value === "string" && value ? value : un
 
 export function createMcp(ledger: Ledger) {
   const month = { type: "string", pattern: "^\\d{4}-\\d{2}$", description: "A month as YYYY-MM. Default: the latest month with data." }
+  const period = { type: "string", pattern: "^\\d{4}(-\\d{2})?$", description: "A month as YYYY-MM, or a whole year as YYYY. Default: the latest month with data." }
   const tools: Tool[] = [
     {
       name: "get_summary",
-      description: "Net worth, this month's income, spending, savings rate, runway in months, spending against the usual month, spending by category, and every month's totals. Amounts are in TWD.",
-      inputSchema: object({ month }),
+      description: "Net worth, the period's income, spending, savings rate, runway in months, spending against the usual month, spending by category, income by source, and every month's totals. The period is a month or a whole year. Amounts are in TWD.",
+      inputSchema: object({ month: period }),
       run: args => ledger.summary(str(args.month)),
     },
     {
