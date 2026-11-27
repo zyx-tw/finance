@@ -2,7 +2,7 @@
 
 ## Layout
 
-- `server/`: the Bun server. `app.ts` routes and checks who is asking, `auth.ts` makes sessions from auth.zyx.tw's signed token (`gate.ts` is a copy of `zyx1121/auth/client/gate.ts`; change it there), `ledger.ts` holds the import, the summary and the detection of recurring charges and card cycles, `categories.ts` the built-in category rules, `mcp.ts` the MCP tools.
+- `server/`: the Bun server. `app.ts` routes and checks who is asking, `auth.ts` makes sessions from auth.zyx.tw's signed token (`gate.ts` is a copy of `zyx-tw/auth/client/gate.ts`; change it there), `ledger.ts` holds the import, the summary and the detection of recurring charges and card cycles, `categories.ts` the built-in category rules, `mcp.ts` the MCP tools.
 - `ingest/`: statement text to an import payload, one parser per bank layout, and the CLI that posts it. `server/statements.ts` runs the same parsers on a PDF posted to `/api/v1/statements`, after qpdf and pdftotext.
 - `src/`: the React app (`finance.tsx`). The shell and `components/ui` come from ui.zyx.tw; do not edit `components/ui`.
 - `deploy/`: the release bundle, its smoke test, the start script, the unit hardening and the env file shape.
