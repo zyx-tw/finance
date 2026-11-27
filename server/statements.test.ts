@@ -12,16 +12,16 @@ const TOKEN = "s".repeat(40)
 let dir: string
 let app: ReturnType<typeof createApp>
 let text = CATHAY
-let seenPassword: string | null = null
+let seenPasswords: string[] = []
 
 beforeAll(() => {
   dir = mkdtempSync(join(tmpdir(), "finance-statements-"))
   mkdirSync(join(dir, "dist"))
   writeFileSync(join(dir, "dist/index.html"), "<html></html>")
   const gate = { live: async () => false, clearState: "" } as unknown as Gate
-  const config = loadConfig({ FINANCE_DATA: join(dir, "data"), FINANCE_DIST: join(dir, "dist"), FINANCE_ORIGIN: ORIGIN, FINANCE_TOKEN: TOKEN, FINANCE_PDF_PASSWORD: "pw-test" })
-  app = createApp(config, gate, async (_pdf, password) => {
-    seenPassword = password
+  const config = loadConfig({ FINANCE_DATA: join(dir, "data"), FINANCE_DIST: join(dir, "dist"), FINANCE_ORIGIN: ORIGIN, FINANCE_TOKEN: TOKEN, FINANCE_PDF_PASSWORD: "pw-test, pw-card" })
+  app = createApp(config, gate, async (_pdf, passwords) => {
+    seenPasswords = passwords
     return text
   })
 })
@@ -36,11 +36,11 @@ test("a statement PDF needs the token", async () => {
   expect((await post(PDF, null)).status).toBe(403)
 })
 
-test("a checked statement is imported once, with finance's own PDF password", async () => {
+test("a checked statement is imported once, with finance's own PDF passwords", async () => {
   const first = (await (await post(PDF)).json()) as Record<string, number | string>
   expect(first).toMatchObject({ parser: "cathay-card", check: "purchases" })
   expect(Number(first.inserted)).toBeGreaterThan(0)
-  expect(seenPassword).toBe("pw-test")
+  expect(seenPasswords).toEqual(["pw-test", "pw-card"])
   const again = (await (await post(PDF)).json()) as Record<string, number | string>
   expect(again.inserted).toBe(0)
   expect(again.duplicates).toBe(first.inserted)

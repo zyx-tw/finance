@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test"
-import { CATHAY } from "./fixtures"
+import { CATHAY, CTBC, TAISHIN_DEBIT } from "./fixtures"
 import { checked, parse } from "./parsers"
 
 // Made-up statements in each bank's layout. Real statements never go in git.
@@ -71,6 +71,23 @@ test("next bank", () => {
   expect(parser).toBe("next-bank")
   expect(payload.transactions).toEqual([{ account: "nextbank", date: "2026-09-21", amount: 2, description: "利息存入" }])
   expect(check!.actual).toBe(1002)
+})
+
+test("ctbc from OCR: amounts above their date join that date's row", () => {
+  const { parser, payload, check } = parse(CTBC)!
+  expect(parser).toBe("ctbc-bank")
+  expect(payload.transactions).toEqual([
+    { account: "ctbc", date: "2026-08-07", amount: -1200, description: "保費 測試保 測試保費" },
+    { account: "ctbc", date: "2026-08-23", amount: 300, description: "轉帳 行動網" },
+  ])
+  expect(checked(check)).toBe(true)
+})
+
+test("taishin debit card: checked, but its rows already come with the taishin statement", () => {
+  const { parser, payload, check } = parse(TAISHIN_DEBIT)!
+  expect(parser).toBe("taishin-debit")
+  expect(payload.transactions).toEqual([])
+  expect(checked(check)).toBe(true)
 })
 
 test("an unknown layout has no parser", () => {
