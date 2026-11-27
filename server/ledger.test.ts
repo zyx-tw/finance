@@ -116,6 +116,16 @@ test("the summary leaves out transfers and counts every other row", async () => 
   expect(s.categories.find((c: { category: string }) => c.category === "Uncategorized").amount).toBe(9000 + 1500)
 })
 
+test("a year adds up its months", async () => {
+  const months = (await body(req("/api/v1/summary"))).months.filter((m: { month: string }) => m.month.startsWith("2026-"))
+  const y = await body(req("/api/v1/summary?month=2026"))
+  expect(y.month).toBe("2026")
+  expect(y.spending).toBe(months.reduce((sum: number, m: { spending: number }) => sum + m.spending, 0))
+  expect(y.income).toBe(months.reduce((sum: number, m: { income: number }) => sum + m.income, 0))
+  expect(y.categories.reduce((sum: number, c: { amount: number }) => sum + c.amount, 0)).toBe(y.spending)
+  expect(y.income_sources.reduce((sum: number, c: { amount: number }) => sum + c.amount, 0)).toBe(y.income)
+})
+
 test("recurring finds both plans of one merchant and skips the delivery app", async () => {
   const r = await body(req("/api/v1/recurring"))
   const plans = r.items.filter((i: { merchant: string }) => i.merchant === "OPENAI*CHATGPT SUBSCR")

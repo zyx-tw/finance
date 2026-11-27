@@ -96,7 +96,9 @@ function Stat({ label, value }: { label: string; value: string }) {
 }
 
 function MonthSelect({ summary, onMonth }: { summary: Summary; onMonth: (month: string) => void }) {
-  const items = summary.months.map(m => ({ value: m.month, label: m.month })).reverse()
+  // A whole year sits above its months, so the flow can show the year at once.
+  const years = [...new Set(summary.months.map(m => m.month.slice(0, 4)))].reverse()
+  const items = years.flatMap(y => [{ value: y, label: `${y} 全年` }, ...summary.months.filter(m => m.month.startsWith(`${y}-`)).map(m => ({ value: m.month, label: m.month })).reverse()])
   return (
     <Select items={items} value={summary.month} onValueChange={value => value && onMonth(value)}>
       <SelectTrigger aria-label="月份" className="w-36">
@@ -109,6 +111,9 @@ function MonthSelect({ summary, onMonth }: { summary: Summary; onMonth: (month: 
   )
 }
 
+/** A month is in the chosen period when it is that month or a month of that year. */
+const inPeriod = (month: string, period: string | null) => month === period || (period?.length === 4 && month.startsWith(`${period}-`))
+
 /** One bar per month, from a shared zero. The chosen month is solid; the rest step back. */
 function SpendingBars({ summary, onMonth }: { summary: Summary; onMonth: (month: string) => void }) {
   const max = Math.max(...summary.months.map(m => m.spending), 1)
@@ -118,8 +123,8 @@ function SpendingBars({ summary, onMonth }: { summary: Summary; onMonth: (month:
         <Tooltip key={m.month}>
           <TooltipTrigger
             render={
-              <button type="button" onClick={() => onMonth(m.month)} aria-label={`${m.month} ${money(m.spending)}`} aria-pressed={m.month === summary.month} className="flex h-full min-w-0 flex-1 flex-col justify-end outline-none focus-visible:ring-3 focus-visible:ring-ring/50">
-                <span className={cn("block w-full rounded-t-[4px] transition-colors duration-state", m.month === summary.month ? "bg-foreground" : "bg-muted-foreground/40 hover:bg-muted-foreground")} style={{ height: `${Math.max((m.spending / max) * 100, 1)}%` }} />
+              <button type="button" onClick={() => onMonth(m.month)} aria-label={`${m.month} ${money(m.spending)}`} aria-pressed={inPeriod(m.month, summary.month)} className="flex h-full min-w-0 flex-1 flex-col justify-end outline-none focus-visible:ring-3 focus-visible:ring-ring/50">
+                <span className={cn("block w-full rounded-t-[4px] transition-colors duration-state", inPeriod(m.month, summary.month) ? "bg-foreground" : "bg-muted-foreground/40 hover:bg-muted-foreground")} style={{ height: `${Math.max((m.spending / max) * 100, 1)}%` }} />
               </button>
             }
           />
@@ -144,7 +149,7 @@ function Overview({ summary, onMonth }: { summary: Summary; onMonth: (month: str
 
       <section aria-labelledby="month-title" className="flex flex-col gap-6">
         <div className="flex items-center justify-between gap-4">
-          <SectionTitle id="month-title" title="本月" />
+          <SectionTitle id="month-title" title={summary.month?.length === 4 ? "全年" : "本月"} />
           <MonthSelect summary={summary} onMonth={onMonth} />
         </div>
         {/* 2 columns on a phone: a 6 digit amount in the title size is wider than a third of the row. */}
