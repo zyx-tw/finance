@@ -362,7 +362,91 @@ function nextBank(text: string): Parsed | null {
   }
 }
 
-const PARSERS = [cathayCard, taishinCard, esunBank, nextBank, taishinBank, sinopacBank, fubonBank, sinopacSecurities]
+/**
+ * CTBC: its fonts hide the Chinese from pdftotext, so this reads the OCR's
+ * markdown (digits read the same either way). OCR may put a row's amounts on the
+ * line above its date, so a line with amounts but no date waits for the next date.
+ */
+function ctbcBank(text: string): Parsed | null {
+  const period = /對帳單期間[:：]?\s*(\d{4})\/(\d\d)\/(\d\d)\s*[-~]\s*(\d{4})\/(\d\d)\/(\d\d)/.exec(text)
+  const start = text.indexOf("台幣無摺帳戶交易明細")
+  if (!period || start < 0 || !/中國信託|ctbcbank/i.test(text)) return null
+  const account = "ctbc"
+  const closing = `${period[4]}-${period[5]}-${period[6]}`
+  const block = text.slice(start)
+  const opening = /上期結餘\s+([\d,]+)/.exec(block)
+  const end = /本期結餘([^\n]*)/.exec(block)
+  if (!opening || !end) return null
+  const amounts = (line: string) => line.split(/\s+/).filter(t => /^[\d,]+(\.\d\d)?$/.test(t) && !/^\d{4}\/\d\d\/\d\d$/.test(t)).map(num)
+  const words = (line: string) => line.replace(/\d{4}\/\d\d\/\d\d/, "").split(/\s+/).filter(t => t && !/\d/.test(t) && !t.startsWith("`"))
+  const closingBalance = amounts(end[1]).at(-1)
+  if (closingBalance === undefined) return null
+  const rows: { date: string; description: string; amount: number; balance: number }[] = []
+  let current: { date: string; words: string[]; nums: number[] } | null = null
+  let waiting: { words: string[]; nums: number[] } | null = null
+  const flush = () => {
+    if (current && current.nums.length >= 2) rows.push({ date: current.date, description: [...new Set(current.words)].join(" "), amount: current.nums.at(-2)!, balance: current.nums.at(-1)! })
+    current = null
+  }
+  const stop = block.search(/本次合計|本期結餘/)
+  for (const line of lines(block.slice(opening.index + opening[0].length, stop))) {
+    const date = /(\d{4})\/(\d\d)\/(\d\d)/.exec(line)
+    const nums = amounts(line)
+    if (date) {
+      flush()
+      current = { date: `${date[1]}-${date[2]}-${date[3]}`, words: words(line), nums }
+      if (!nums.length && waiting) {
+        current.words.push(...waiting.words)
+        current.nums = waiting.nums
+      }
+      waiting = null
+    } else if (nums.length >= 2) {
+      if (current && !(current as { nums: number[] }).nums.length) {
+        current.nums = nums
+        current.words.push(...words(line))
+      } else {
+        flush()
+        waiting = { words: words(line), nums }
+      }
+    } else if (current) current.words.push(...words(line))
+  }
+  flush()
+  const transactions = byBalance(rows, num(opening[1]), account)
+  return {
+    parser: "ctbc-bank",
+    payload: {
+      source: `ctbc-${closing.slice(0, 7)}`,
+      accounts: [{ id: account, name: "中信存款", kind: "deposit", institution: "CTBC Bank" }],
+      balances: [{ account, date: closing, amount: closingBalance }],
+      statements: [],
+      transactions,
+    },
+    check: { label: "closing balance", expected: closingBalance, actual: num(opening[1]) + transactions.reduce((sum, t) => sum + t.amount, 0) },
+  }
+}
+
+/**
+ * Taishin's debit card statement repeats rows of a Richart account that the
+ * Taishin statement already brings, so it adds nothing: its purchases are only
+ * checked against its own total.
+ */
+function taishinDebit(text: string): Parsed | null {
+  const period = /對帳單期間[:：]\s*(\d{4})\/(\d\d)\/(\d\d)\s*~\s*(\d{4})\/(\d\d)\/(\d\d)/.exec(text)
+  const total = /本月消費金額共計\s*NT\$\s*([\d,]+)/.exec(text)
+  if (!period || !total || !text.includes("簽帳金融卡") || !text.includes("台新")) return null
+  let sum = 0
+  for (const line of lines(text)) {
+    const row = /^\s*\d{4}\/\d\d\/\d\d\s+\d{4}\/\d\d\/\d\d\b.*\s([\d,]+)\s*$/.exec(line)
+    if (row) sum += num(row[1])
+  }
+  return {
+    parser: "taishin-debit",
+    payload: { source: `taishin-debit-${period[4]}-${period[5]}`, accounts: [], balances: [], statements: [], transactions: [] },
+    check: { label: "purchases", expected: num(total[1]), actual: sum },
+  }
+}
+
+const PARSERS = [cathayCard, taishinCard, esunBank, nextBank, taishinBank, sinopacBank, fubonBank, sinopacSecurities, ctbcBank, taishinDebit]
 
 /** The first parser that knows the layout, or null when none does. */
 export function parse(text: string): Parsed | null {

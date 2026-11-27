@@ -1,3 +1,4 @@
+import type { Ocr } from "./statements"
 import { resolve } from "node:path"
 import type { JWK } from "jose"
 import authKey from "./auth-key.json"
@@ -16,7 +17,8 @@ export type Config = {
   /** Anthropic API key for sorting rows into categories. Off when unset. */
   anthropicKey: string | null
   /** The password of the banks' statement PDFs (POST /api/v1/statements). */
-  pdfPassword: string | null
+  pdfPasswords: string[]
+  ocr: Ocr | null
 }
 
 export function loadConfig(env: Record<string, string | undefined> = process.env): Config {
@@ -31,6 +33,8 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
     authKey: authKey as JWK,
     token,
     anthropicKey: env.FINANCE_ANTHROPIC_KEY?.trim() || null,
-    pdfPassword: env.FINANCE_PDF_PASSWORD?.trim() || null,
+    // Comma separated: each bank picks its own statement password.
+    pdfPasswords: (env.FINANCE_PDF_PASSWORD ?? "").split(",").map(p => p.trim()).filter(Boolean),
+    ocr: env.FINANCE_OCR_KEY?.trim() ? { url: env.FINANCE_OCR_URL?.trim() || "https://llm.winlab.tw/v1", key: env.FINANCE_OCR_KEY.trim(), model: env.FINANCE_OCR_MODEL?.trim() || "mineru-flash" } : null,
   }
 }

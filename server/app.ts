@@ -11,14 +11,14 @@ import { HttpError, createLimiter, json, readBytes, readJson } from "./http"
 import { createLedger } from "./ledger"
 import { createMcp } from "./mcp"
 import { log } from "./otel"
-import { type Extract, MAX_PDF, pdfText, readStatement } from "./statements"
+import { type Extract, MAX_PDF, pdfReader, readStatement } from "./statements"
 
 // Maple Mono NF CN comes from ui.zyx.tw, the design system's font host.
 const APP_CSP = "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://ui.zyx.tw; font-src 'self' https://ui.zyx.tw; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'"
 
 const digest = (value: string) => createHash("sha256").update(value).digest()
 
-export function createApp(config: Config, testGate?: Gate, extract: Extract = pdfText, today?: () => string) {
+export function createApp(config: Config, testGate?: Gate, extract: Extract = pdfReader(config.ocr), today?: () => string) {
   mkdirSync(config.data, { recursive: true })
   const db = openDb(join(config.data, "finance.db"))
   const gate =
@@ -117,7 +117,7 @@ export function createApp(config: Config, testGate?: Gate, extract: Extract = pd
       return json(result)
     }
     if (path === "/api/v1/statements" && req.method === "POST") {
-      const parsed = await readStatement(await readBytes(req, MAX_PDF), config.pdfPassword, extract)
+      const parsed = await readStatement(await readBytes(req, MAX_PDF), config.pdfPasswords, extract)
       const result = importAll(parsed.payload)
       log("statement.imported", { parser: parsed.parser, rows: parsed.payload.transactions.length, inserted: result.inserted, duplicates: result.duplicates })
       return json({ parser: parsed.parser, check: parsed.check!.label, rows: parsed.payload.transactions.length, ...result })
