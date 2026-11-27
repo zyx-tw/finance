@@ -61,9 +61,14 @@ export function MonthFlow({ summary, label }: { summary: Summary; label: (catego
   // Each band joins the middle bar just below the one before it.
   const at = (nodes: Placed[]) => nodes.map((_, i) => middle.y + nodes.slice(0, i).reduce((sum, x) => sum + x.h, 0))
   const inAt = at(l)
+  // A label sits at its node's middle, pushed down when the label above needs the room.
+  const labels = (nodes: Placed[], room: number) => nodes.reduce<number[]>((ys, n) => [...ys, Math.max(n.y + n.h / 2, (ys.at(-1) ?? -Infinity) + room)], [])
+  const lY = labels(l, 38)
+  const rY = labels(r, 20)
+  const tall = Math.max(H, (lY.at(-1) ?? 0) + 20, (rY.at(-1) ?? 0) + 12)
   const outAt = at(r)
   return (
-    <svg viewBox={`0 0 ${W} ${H}`} role="img" aria-label={`${summary.month} 收支流向`} className="h-auto w-full text-foreground">
+    <svg viewBox={`0 0 ${W} ${tall}`} role="img" aria-label={`${summary.month} 收支流向`} className="h-auto w-full text-foreground">
       {l.map((n, i) => {
         const d = band(LEFT + BAR, n.y, MID, inAt[i], n.h)
         return <path key={`l-${n.label}`} d={d} className={n.label === "動用存款" ? "fill-destructive/25" : "fill-foreground/15"}><title>{`${n.label} ${money(n.amount)}`}</title></path>
@@ -72,18 +77,18 @@ export function MonthFlow({ summary, label }: { summary: Summary; label: (catego
         const d = band(MID + BAR, outAt[i], RIGHT, n.y, n.h)
         return <path key={`r-${n.label}`} d={d} className={n.label === "結餘" ? "fill-foreground/35" : "fill-foreground/15"}><title>{`${n.label} ${money(n.amount)}`}</title></path>
       })}
-      {l.map(n => (
+      {l.map((n, i) => (
         <g key={`ln-${n.label}`}>
           <rect x={LEFT} y={n.y} width={BAR} height={n.h} rx={2} className="fill-foreground" />
-          <text x={LEFT - 8} y={n.y + n.h / 2} textAnchor="end" dominantBaseline="middle" className="fill-foreground text-[13px]">{n.label}</text>
-          <text x={LEFT - 8} y={n.y + n.h / 2 + 16} textAnchor="end" dominantBaseline="middle" className="fill-muted-foreground text-[12px] tabular-nums">{money(n.amount)}</text>
+          <text x={LEFT - 8} y={lY[i] - 8} textAnchor="end" dominantBaseline="middle" className="fill-foreground text-[13px]">{n.label}</text>
+          <text x={LEFT - 8} y={lY[i] + 8} textAnchor="end" dominantBaseline="middle" className="fill-muted-foreground text-[12px] tabular-nums">{money(n.amount)}</text>
         </g>
       ))}
       <rect x={MID} y={middle.y} width={BAR} height={middle.h} rx={2} className="fill-foreground" />
-      {r.map(n => (
+      {r.map((n, i) => (
         <g key={`rn-${n.label}`}>
           <rect x={RIGHT} y={n.y} width={BAR} height={n.h} rx={2} className="fill-foreground" />
-          <text x={RIGHT + BAR + 8} y={n.y + n.h / 2} dominantBaseline="middle" className="fill-foreground text-[13px]">
+          <text x={RIGHT + BAR + 8} y={rY[i]} dominantBaseline="middle" className="fill-foreground text-[13px]">
             {n.label} <tspan className="fill-muted-foreground tabular-nums">{money(n.amount)}</tspan>
           </text>
         </g>
