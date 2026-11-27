@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useState, type ReactNode } from "react"
 import { toast } from "sonner"
 import { MonthFlow, WorthLine } from "@/charts"
+import { Ascii, textField } from "@/components/ascii"
+import { BlockColumns, BrailleChart, Meter } from "@/components/glyph-chart"
 import { cornerLink } from "@/components/corners"
 import { SectionTitle } from "@/components/section-title"
 import { TaskShell } from "@/components/task-shell"
@@ -8,7 +10,7 @@ import { Button } from "@/components/ui/button"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
+import { TooltipProvider } from "@/components/ui/tooltip"
 import { CATEGORIES, api, money, patch, post, type Card, type Recurring, type Summary, type Transaction } from "@/lib/api"
 import { cn } from "@/lib/utils"
 
@@ -23,6 +25,9 @@ const CATEGORY_LABEL: Record<string, string> = {
 }
 // A row is one of the categories, or a transfer between own accounts, which is no cost and no income.
 const CATEGORY_ITEMS = [...CATEGORIES, "Transfer"].map(value => ({ value, label: CATEGORY_LABEL[value] }))
+
+// The sign-in screen's word, drawn in characters that glow in the dark theme.
+const WORDMARK = textField("FINANCE")
 
 export function FinanceApp() {
   const [me, setMe] = useState<Me | null>(null)
@@ -48,7 +53,8 @@ export function FinanceApp() {
   return (
     <TaskShell title="Finance" actions={actions} wide center={!me?.authenticated} lang="zh-TW">
       {me && !me.authenticated && (
-        <section aria-label="登入" className="flex justify-center gap-3">
+        <section aria-label="登入" className="flex w-full max-w-xl flex-col items-center gap-6">
+          <Ascii source={WORDMARK} look="classic" cell={7} effects={{ bloom: 1.2, scanlines: true }} className="block h-40 w-full" />
           <Button onClick={() => window.location.assign("/auth/start")}>登入</Button>
         </section>
       )}
@@ -86,11 +92,11 @@ function Workspace() {
   )
 }
 
-function Stat({ label, value }: { label: string; value: string }) {
+function Stat({ label, value, tone }: { label: string; value: string; tone?: "low" | "high" }) {
   return (
     <div>
       <dt className="text-caption text-muted-foreground">{label}</dt>
-      <dd className="text-title font-medium tabular-nums">{value}</dd>
+      <dd className={cn("text-title font-medium tabular-nums", tone === "low" && "text-data-low", tone === "high" && "text-data-high")}>{value}</dd>
     </div>
   )
 }
@@ -114,29 +120,25 @@ function MonthSelect({ summary, onMonth }: { summary: Summary; onMonth: (month: 
 /** A month is in the chosen period when it is that month or a month of that year. */
 const inPeriod = (month: string, period: string | null) => month === period || (period?.length === 4 && month.startsWith(`${period}-`))
 
-/** One bar per month, from a shared zero. The chosen month is solid; the rest step back. */
+/** One column per month, from a shared zero, shaded by how much went out. The chosen period is solid; the rest step back. */
 function SpendingBars({ summary, onMonth }: { summary: Summary; onMonth: (month: string) => void }) {
-  const max = Math.max(...summary.months.map(m => m.spending), 1)
   return (
-    <div role="group" aria-label="每月支出" className="flex h-40 items-end gap-0.5">
-      {summary.months.map(m => (
-        <Tooltip key={m.month}>
-          <TooltipTrigger
-            render={
-              <button type="button" onClick={() => onMonth(m.month)} aria-label={`${m.month} ${money(m.spending)}`} aria-pressed={inPeriod(m.month, summary.month)} className="flex h-full min-w-0 flex-1 flex-col justify-end outline-none focus-visible:ring-3 focus-visible:ring-ring/50">
-                <span className={cn("block w-full rounded-t-[4px] transition-colors duration-state", inPeriod(m.month, summary.month) ? "bg-foreground" : "bg-muted-foreground/40 hover:bg-muted-foreground")} style={{ height: `${Math.max((m.spending / max) * 100, 1)}%` }} />
-              </button>
-            }
-          />
-          <TooltipContent>{m.month} {money(m.spending)}</TooltipContent>
-        </Tooltip>
-      ))}
-    </div>
+    <BlockColumns
+      aria-label="每月支出"
+      role="group"
+      values={summary.months.map(m => m.spending)}
+      labels={summary.months.map(m => `${m.month} ${money(m.spending)}`)}
+      rows={7}
+      tone="heat"
+      selected={i => inPeriod(summary.months[i].month, summary.month)}
+      onSelect={i => onMonth(summary.months[i].month)}
+    />
   )
 }
 
 function Overview({ summary, onMonth }: { summary: Summary; onMonth: (month: string) => void }) {
   const top = Math.max(...summary.categories.map(c => c.amount), 1)
+  const worth = summary.months.flatMap(m => (m.net_worth === null ? [] : [m.net_worth]))
   const kinds = ["deposit", "investment", "card", "loan"].filter(kind => summary.accounts.some(a => a.kind === kind))
   return (
     <div className="flex flex-col gap-12">
@@ -145,6 +147,7 @@ function Overview({ summary, onMonth }: { summary: Summary; onMonth: (month: str
         <p className="text-caption text-muted-foreground">淨資產</p>
         <p className="text-title font-medium tabular-nums sm:text-display">{summary.net_worth === null ? "-" : money(summary.net_worth)}</p>
         <p className="mt-2 text-caption text-muted-foreground tabular-nums">資產 {money(summary.assets)}，負債 {money(summary.liabilities)}</p>
+        {worth.length > 1 && <BrailleChart aria-label="淨資產走勢" values={worth} rows={3} variant="area" className="mt-6 text-muted-foreground" />}
       </section>
 
       <section aria-labelledby="month-title" className="flex flex-col gap-6">
@@ -156,7 +159,7 @@ function Overview({ summary, onMonth }: { summary: Summary; onMonth: (month: str
         <dl className="grid grid-cols-2 gap-6 sm:grid-cols-3">
           <Stat label="收入" value={money(summary.income)} />
           <Stat label="支出" value={money(summary.spending)} />
-          <Stat label="結餘" value={money(summary.saved)} />
+          <Stat label="結餘" value={money(summary.saved)} tone={summary.saved < 0 ? "high" : "low"} />
         </dl>
       </section>
 
@@ -177,7 +180,7 @@ function Overview({ summary, onMonth }: { summary: Summary; onMonth: (month: str
               <TableRow key={c.category}>
                 <TableCell className="w-40">{CATEGORY_LABEL[c.category] ?? c.category}</TableCell>
                 <TableCell className="hidden sm:table-cell">
-                  <span className="block h-2 rounded-r-[4px] bg-foreground" style={{ width: `${Math.max((c.amount / top) * 100, 0.5)}%` }} />
+                  <Meter value={c.amount / top} tone="heat" />
                 </TableCell>
                 <TableCell className="w-16 text-right text-muted-foreground tabular-nums">{c.count}</TableCell>
                 <TableCell className="w-32 text-right tabular-nums">{money(c.amount)}</TableCell>
